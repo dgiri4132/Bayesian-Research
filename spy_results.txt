@@ -1,0 +1,8 @@
+n=2512, tau=0.05, chains=4, iter=15000, burn=5000
+priors: sigma~IG(2,0.012), omega~N(0,1)
+R-hat theta=1.00055 sigma=0.99999  ESS theta=2338 sigma=19486
+
+Historical            VaR=-0.0174  ES=-0.0281
+Normal                VaR=-0.0184  ES=-0.0232
+Student-t             VaR=-0.0152  ES=-0.0276
+Bayesian              VaR=-0.0174 [-0.0179,-0.0167]  ES=-0.0189 [-0.0194,-0.0182]

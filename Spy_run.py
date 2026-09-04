@@ -106,7 +106,7 @@ def split_rhat(chains):
         n = len(c) // 2
         halves.append(c[:n]); halves.append(c[n:2*n])
     seqs = np.array(halves)              # (2m, n)
-    m, n = seqs.shape
+    n_seq, n = seqs.shape
     means = seqs.mean(axis=1)
     W = seqs.var(axis=1, ddof=1).mean()
     B = n * means.var(ddof=1)
@@ -172,6 +172,7 @@ def main():
             n0=N0, s0=S0)
         theta_chains.append(om[:, 0])
         sigma_chains.append(sg)
+        assert all(c.ndim == 1 for c in theta_chains + sigma_chains), "chains must be 1-D"
         print(f"  chain {c+1}: start(theta={omega_inits[c]:+.4f}, "
               f"sigma={sigma_inits[c]:.4f}) -> "
               f"post mean theta={om[:,0].mean():+.5f}, sigma={sg.mean():.5f}")

@@ -78,14 +78,14 @@ def coverage_band(reps, nominal=95.0, n_se=2.0):
     """
     The width is the binomial standard error of the coverage estimate itself, not
     a fixed tolerance: at 60 replicates a calibrated interval lands on 100% about
-    one run in eight, while at 3000 a fixed +/- 5 points would pass a broken one.
+    one run in 22, while at 3000 a fixed +/- 5 points would pass a broken one.
 
     n_se = 2, not 3 because I found out that 3-se band at 1000 replicates is 
     [92.9, 97.1] and would pass a true coverage of 93%; at 2 se it is [93.6, 96.4]
      and 93% is rejected.
 
-    Returns (lo, hi, se); `lo` is the band's power and also the smallest true coverage
-    it still rejects.
+    Returns (lo, hi, se); `lo` is the lower edge of the band, any true coverage
+    below it gets rejected.
 
     Calibration of the exact posterior was measured directly, not assumed i.e. at
     n = 2512, tau = 0.05, 3000 replicates gave 94.80% +/- 0.41 (z = -0.49), and an
@@ -620,9 +620,9 @@ def A5(dgps, tau, n, reps, grid_points, n_draws):
     check("A5  the mean identity recovers the empirical CVaR exactly, every replicate",
           worst_id < 1e-12, f"worst error {worst_id:.2e}")
     print("""
-    The middle column tracks the truth and the left column does not.  The two
-    formulas differ in one place: which mean is substituted.  So the ES error is
-    the model's error in the mean, and nothing else.""")
+    On the misspecified rows the middle column tracks the truth and the left
+    column does not.  The two formulas differ in one place: which mean is substituted.
+    So the ES error is the model's error in the mean, and nothing else.""")
     RESULTS["A5"] = rows
 
 

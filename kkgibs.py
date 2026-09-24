@@ -1,7 +1,7 @@
 """
 This is the shared core for the Bayesian CVaR project since the revision of my paper.
 
-It is a single module so that spy_run1.py, experiment_A.py, experiment_B.py,
+It is a single module so that spy_run.py, experiment_A.py, experiment_B.py,
 experiment_C.py and rdiag.py cannot drift apart: there is exactly one sampler,
 one set of diagnostics, one set of AL formulas, and one definition of the
 empirical estimators in the whole project.
@@ -107,7 +107,7 @@ def print_env_stamp(prefix: str = "  ") -> dict:
 # the asymmetric Laplace
 
 def split_index(tau: float, n: int) -> int:
-    
+    # k = floor(tau*n + 1/2), round half up. at tau = 0.05 and n = 2512 this is 126
     k = int(np.floor(tau * n + 0.5))
     return min(max(k, 1), n - 1)
 
@@ -154,7 +154,7 @@ def al_mean(omega, sigma, tau):
 
 
 def al_cvar(omega, sigma, tau, level=None):
-    
+    # CVaR at any level, with no level given it is the ES at tau
     if level is None:
         return omega - sigma / (1 - tau)
     level = np.asarray(level, dtype=float)
@@ -176,7 +176,7 @@ def al_es(omega, sigma, tau):
 
 
 def al_es_via_mean(omega, sigma, tau):
-    
+    # same ES the other way, AL mean - sigma/tau. Spy_run checks both give the same number
     return al_mean(omega, sigma, tau) - sigma / tau
 
 
@@ -241,7 +241,8 @@ def al_mle(y, tau, index_convention=True):
 
 
 def empirical_var_cvar(y, tau, index_convention=True):
-    
+    # historical VaR/CVaR split at index k, also returns the np.quantile version
+    # index_convention isn't actually used, it always splits at k
     y = np.sort(np.asarray(y, dtype=float))
     n = y.size
     k = split_index(tau, n)
@@ -266,7 +267,8 @@ class GibbsResult:
     seed: int
     n_iter: int
     burn_in: int
-    
+    # how many times the guard floors were hit. not zero on the SPY run so don't
+    # write that the guards never bind, the counts are in spy_results.json
     delta_floor_hits: int = 0
     v_clip_hits: int = 0
     n_obs: int = 0
@@ -274,7 +276,7 @@ class GibbsResult:
     diagnostics: dict = field(default_factory=dict)
 
 
-
+# same guard values as the original spy_run.py so the random numbers don't change
 DELTA2_FLOOR = 1e-12
 V_FLOOR = 1e-8
 
@@ -382,7 +384,7 @@ def split_rhat(chains) -> float:
     Split-chain Gelman-Rubin R-hat.  Each chain is halved, giving 2m sequences.
 
     Returns +inf rather than nan when the within-chain variance is zero (a stuck
-    chain).  nan would silently PASS a `rhat< target` gate, because every
+    chain).  nan would silently PASS a `rhat > target` gate, because every
     comparison with nan is False; +inf fails it, which is the safedirection.
     """
     halves = []
@@ -408,7 +410,7 @@ def ess(x, max_lag=1000) -> float:
     """
     Effective sample size for one chain, truncated autocorrelation with the
     first-negative rule.  Consistent with the inefficiency factor K-K report,
-    so that IF = n/ESS is directly comparable to your respectiveTable 1.
+    so that IF = n/ESS is directly comparable to their Table 1.
     """
     x = np.asarray(x, dtype=float).ravel()
     x = x - x.mean()
@@ -561,6 +563,11 @@ def exact_posterior(y, tau, n_draws, seed, omega_p0=0.0, B_p0=1.0,
     #  criterion legitimately pushes the bracket far out and the default grid can
     #  fall below 20 points per posterior sd (n = 10 gives 18.7).  That is a
     #  resolution problem with an obvious answer: use more points.
+    #
+    #  resolution guard.  The only way to know the grid resolves the posterior is
+    #  to measure it against the posterior's own scale.  This is the check that
+    #  would have caught the bracketing failure above without needing the
+    #  refinement pass, so it always runs.
     used_points = int(grid_points)
     for _ in range(6):
         grid, lp, dens, cdf = build(used_points)
@@ -579,10 +586,8 @@ def exact_posterior(y, tau, n_draws, seed, omega_p0=0.0, B_p0=1.0,
             f"that the prior and data scales are compatible.")
     grid_points = used_points
 
-    #  resolution guard.  The only way to know the grid resolves the posterior is
-    #  to measure it against the posterior's own scale.  This is the check that
-    #  would have caught the bracketing failure above without needing the
-    #  refinement pass, so it always runs.
+    # refinement check, only runs if verify_refinement is on: rebuild the grid at
+    # double resolution and compare the quantiles and the mean
     rel = 0.0
     if verify_refinement:
         g2, lp2, d2, c2 = build(2 * grid_points - 1)

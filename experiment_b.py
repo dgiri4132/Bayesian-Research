@@ -429,8 +429,9 @@ def B2b(quick: bool) -> None:
     print("""
     The paper's claim survives in a better form.  What tau = 1/2 proves is not that
     the AL conversion is exact at the median for everything, but that for SYMMETRIC
-    data the conversion is exact at the median and degrades monotonically into the
-    tail.  That is still a clean analytic separation of 'tail phenomenon' from
+    data the conversion is exact at the median.  For the Normal, t and Laplace here
+    it then degrades monotonically into the tail; the uniform, also symmetric, stays
+    at R = 1 at every tau (see B5).  That is still a clean analytic separation of 'tail phenomenon' from
     'general misspecification' -- it just needs the symmetry hypothesis stated.
 """)
     RESULTS["B2b"] = rows
@@ -449,11 +450,9 @@ def B3(quick: bool) -> None:
     #  and e_U ~ |z|, hence R ~ tau z^2 ~ 2 tau log(1/tau).  (iii) Weibull: with
     #  F(x) ~ c (x - x_L)^gamma, e_L ~ (tau/c)^(1/gamma)/(gamma+1).
     #
-    #  DRAFTING NOTE, not printed: B1', the R = 1 characterisation and the
-    #  tau = 1/2 result are three readings of one line of algebra, and the (iii)
-    #  trichotomy is three readings of one endpoint formula.  Write them in the
-    #  paper as one lemma with corollaries; presenting them as separate results
-    #  overstates the content.
+    #  B1', the R = 1 characterisation and the tau = 1/2 result all come from one
+    #  line of algebra, and the (iii) trichotomy from one endpoint formula, so in
+    #  the paper they go in as one lemma with corollaries.
     print("""
     THEOREM.  Let Y have finite mean mu and left endpoint x_L, and write
     e_L(tau) = VaR - CVaR,  e_U(tau) = ybar_up - VaR.  Then
@@ -462,12 +461,14 @@ def B3(quick: bool) -> None:
 
     and since e_U -> mu - x_L as tau -> 0,  R(tau) -> 0  iff  tau e_U/e_L -> 0.
     By max-domain of attraction of the LEFT tail: R ~ alpha*tau in the Frechet
-    MDA (alpha the tail index), R ~ 2 tau log(1/tau) in the Gumbel MDA, and at a
-    finite left endpoint R(0+) is 0, 2 f(x_L)(mu - x_L), or +infinity according as
-    the density there vanishes, is positive and finite, or blows up.
+    MDA (alpha the tail index); R -> 0 in the Gumbel MDA, at a rate set by the
+    tail (2 tau log(1/tau) for the Normal, tau log(1/tau) for the Laplace); and
+    at a finite left endpoint R(0+) is 0, 2 f(x_L)(mu - x_L), or +infinity
+    according as the density there vanishes, is positive and finite, or blows up.
 
     COROLLARY.  Any return distribution with a finite mean and an unbounded left
-    tail lies in the Frechet or Gumbel MDA, so R(tau) -> 0.  The fraction of the
+    tail that is in a max-domain of attraction at all lies in the Frechet or
+    Gumbel MDA, so R(tau) -> 0.  The fraction of the
     true shortfall gap the AL conversion can represent VANISHES as the tail is
     entered -- a theorem about the working likelihood, not an observation on SPY.
 """)
@@ -617,8 +618,8 @@ def B4(quick: bool) -> None:
     Forecasting 2026; 45:1495-1510, DOI 10.1002/for.70103.  Their abstract:
 
         "However, the asymmetric Laplace distribution does not fit the
-         distribution of asset returns, which is characterised by SHARP PEAKS AND
-         HEAVY TAILS."
+         distribution of asset returns, which is characterized by sharp peaks and
+         heavy tails."
 
     and section 2.1: "The AL distribution (Yu and Moyeed 2001) is widely used for
     eps_t, but it is improper to describe the statistical feature of financial
@@ -685,8 +686,9 @@ def B5(quick: bool) -> None:
     xr = brentq(lambda t: float(np.atleast_1d(ln.R_closed(t))[0]) - 1.0, 1e-6, 0.4)
     print(f"""
     The lognormal crosses R = 1 at tau = {xr:.5f}: it OVERSTATES the gap above that
-    level and UNDERSTATES it below, and by B3(iii) with gamma > 1 it still goes to 0
-    as tau -> 0.  So R is a genuine two-sided diagnostic, and 'the AL is too thin'
+    level and UNDERSTATES it below, and it still goes to 0 as tau -> 0 (its lower
+    tail at 0 is Gumbel-type, so this is not a B3(iii) case).  So R is a genuine
+    two-sided diagnostic, and 'the AL is too thin'
     is not even the right one-line summary -- it is too thin WHERE IT MATTERS.
 
     (b) R is unbounded above.  Beta(gamma,1) with gamma < 1 has R(0+) = infinity:

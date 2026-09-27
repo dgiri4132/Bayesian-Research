@@ -14,12 +14,13 @@ magnitude it does.  B answers that question analytically.
     B3   the tau -> 0 theorem, all three max-domains of attraction
     B4   the analytic refutation of the fat-tails diagnosis
     B5   R > 1: the diagnostic is two-sided, and unbounded above
-    (I cut B6, R across a panel of many assets,from the paper, it remains in the 
-    repository but reports nothing the paper cites.  )
+    B6   R across 492 real stocks. It is in experiment_b6.py, not here, because
+         it needs downloaded prices. I cut it on 5 Sep and brought it back on
+         27 Sep once I had downloaded the data myself.
 .
 
 Conventions and the sample-splitting rule come from kkgibs.py( I made a spelling error 
-and decided to stick with it), which spy_run1.p and experiment_A.py also use, so the 
+and decided to stick with it), which Spy_run.py and experiment_A.py also use, so the 
 three scripts cannot disagree about what the empirical VaR and CVaR of a sample are.  
 Returns are SIMPLE throughout the project.
 

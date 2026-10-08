@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-fig_R_tau.py -- the R(tau) figure for Experiment B.
+/fig_eta_tau.py/ -- the R(tau) figure for Experiment B.
 
 This makes the one figure that shows the whole R story at a glance.
 
@@ -19,7 +19,7 @@ Panel (b)  the same thing on log-log axes over eight decades of tau, so you can
 Every line has its own linestyle as well as its own colour, so you can tell
 them apart without colour.
 
-writes fig_R_tau.png, fig_R_tau.pdf, R_tau_table.csv
+/writes fig_eta_tau.png, fig_eta_tau.pdf, eta_tau_table.csv/
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ import csv
 
 import matplotlib
 matplotlib.use("Agg")
+matplotlib.rcParams["pdf.fonttype"] = 42   # real fonts in the pdf, not Type 3
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -52,8 +53,8 @@ PANEL_A = [
 # families for the log-log panel: three that go to 0, two that level off,
 # one that blows up
 PANEL_B = [
-    (StudentT(3),      C["aqua"],    (0, (1, 1.6)), "$t(3)$  (Fréchet, " + r"$R\sim\alpha\tau$)"),
-    (Normal(),         C["blue"],    "-",           r"Normal  (Gumbel, $R\sim\tau z_\tau^2$)"),
+    (StudentT(3),      C["aqua"],    (0, (1, 1.6)), "$t(3)$  (Fréchet, " + r"$\eta\sim\alpha\tau$)"),
+    (Normal(),         C["blue"],    "-",           r"Normal  (Gumbel, $\eta\sim\tau z_\tau^2$)"),
     (LogNormal(),      C["green"],   (0, (6, 2)),   r"Lognormal  (endpoint, Gumbel-type)"),
     (Uniform(),        C["magenta"], (0, (2, 2)),   r"Uniform  (endpoint, $\gamma=1$)"),
     (Exponential(),    C["yellow"],  (0, (7, 2, 1, 2)), r"Exponential  (endpoint, $\gamma=1$)"),
@@ -72,8 +73,9 @@ def _style(ax):
     ax.set_axisbelow(True)
 
 
-def _legend(ax, loc, ncol=1, title=None):
-    lg = ax.legend(loc=loc, ncol=ncol, frameon=True, fontsize=8.5,
+def _legend(ax, loc, ncol=1, title=None, bbox=None, fs=8.5):
+    lg = ax.legend(loc=loc, ncol=ncol, frameon=True, fontsize=fs,
+                   bbox_to_anchor=bbox,
                    title=title, borderpad=0.6, handlelength=2.6,
                    labelspacing=0.45, framealpha=1.0)
     lg.get_frame().set_edgecolor(GRID)
@@ -87,7 +89,7 @@ def _legend(ax, loc, ncol=1, title=None):
 
 
 def main() -> None:
-    fig, (axa, axb) = plt.subplots(1, 2, figsize=(11.4, 4.9))
+    fig, (axa, axb) = plt.subplots(1, 2, figsize=(11.4, 6.2))
     fig.patch.set_facecolor("white")
 
     # ---- panel (a) ----
@@ -103,17 +105,17 @@ def main() -> None:
         axa.plot(ta, np.atleast_1d(fam.R_closed(ta)), color=col, ls=ls, lw=2.0,
                  zorder=4, label=lab)
 
-    axa.annotate(r"$R\equiv 1$", xy=(1.3e-3, 1.0), xytext=(1.3e-3, 1.12),
+    axa.annotate(r"$\eta\equiv 1$", xy=(1.3e-3, 1.0), xytext=(1.3e-3, 1.12),
                  fontsize=8.5, color=INK, zorder=6)
     axa.set_xscale("log")
     axa.set_xlim(1e-3, 0.5)
     axa.set_ylim(0, 2.5)
     axa.set_xlabel(r"quantile level  $\tau$", fontsize=10, color=INK)
-    axa.set_ylabel(r"$R(\tau)$", fontsize=10.5, color=INK)
+    axa.set_ylabel(r"$\eta(\tau)$", fontsize=10.5, color=INK)
     axa.set_title("(a)  the fraction of the true shortfall gap\n"
                   "       the AL is able to represent",
                   fontsize=10.5, color=INK, loc="left", pad=8)
-    _legend(axa, "upper left")
+    _legend(axa, "upper center", ncol=2, bbox=(0.5, -0.17), fs=8)
 
     # ---- panel (b) ----
     tb = np.logspace(-8, np.log10(0.5), 700)
@@ -130,30 +132,31 @@ def main() -> None:
     axb.set_ylim(1e-9, 1e9)
     axb.set_yticks([1e-8, 1e-6, 1e-4, 1e-2, 1e0, 1e2, 1e4, 1e6, 1e8])
     axb.set_xlabel(r"quantile level  $\tau$", fontsize=10, color=INK)
-    axb.set_ylabel(r"$R(\tau)$", fontsize=10.5, color=INK)
-    axb.set_title("(b)  the three limits of $R$ as $\\tau\\to 0$,\n"
+    axb.set_ylabel(r"$\eta(\tau)$", fontsize=10.5, color=INK)
+    axb.set_title("(b)  the three limits of $\\eta$ as $\\tau\\to 0$,\n"
                   "       over eight decades",
                   fontsize=10.5, color=INK, loc="left", pad=8)
 
-    axb.text(2e-4, 3e6, r"$R\to\infty$", fontsize=9.5, color=INK2)
-    axb.text(1e-7, 25.0, r"$R\to$ const", fontsize=9.5, color=INK2)
-    axb.text(2e-7, 4e-9, r"$R\to 0$", fontsize=9.5, color=INK2)
-    _legend(axb, "lower right")
+    axb.text(2e-4, 3e6, r"$\eta\to\infty$", fontsize=9.5, color=INK2)
+    axb.text(1e-7, 25.0, r"$\eta\to$ const", fontsize=9.5, color=INK2)
+    axb.text(2e-7, 4e-9, r"$\eta\to 0$", fontsize=9.5, color=INK2)
+    # legends go under the panels, inside panel (b) it covered the R -> 0 curves
+    _legend(axb, "upper center", ncol=2, bbox=(0.5, -0.17), fs=8)
 
-    fig.subplots_adjust(left=0.065, right=0.985, top=0.85, bottom=0.155,
+    fig.subplots_adjust(left=0.065, right=0.985, top=0.88, bottom=0.33,
                         wspace=0.24)
     fig.text(0.065, 0.028,
-             r"$R(\tau)=\dfrac{\tau\,(\mu-\mathrm{CVaR}_\tau)}"
+             r"$\eta(\tau)=\dfrac{\tau\,(\mu-\mathrm{CVaR}_\tau)}"
              r"{(1-\tau)\,(\mathrm{VaR}_\tau-\mathrm{CVaR}_\tau)}$"
              r"$\;=\;\tau\left(1+e_U/e_L\right)$,"
-             r"  invariant to location and scale.  $R\equiv1$ under the"
-             r" asymmetric-Laplace working likelihood, and $R=1$ exactly when"
+             r"  invariant to location and scale.  $\eta=1$ at every $\tau$ for the"
+             r" AL whose parameter equals $\tau$, and $\eta=1$ exactly when"
              r" $e_U/e_L=(1-\tau)/\tau$.",
              fontsize=8, color=INK2)
 
     for ext in ("png", "pdf"):
-        fig.savefig(f"fig_R_tau.{ext}", dpi=200, facecolor="white")
-    print("wrote fig_R_tau.png, fig_R_tau.pdf")
+        fig.savefig(f"fig_eta_tau.{ext}", dpi=200, facecolor="white")
+    print("wrote fig_eta_tau.png, fig_eta_tau.pdf")
 
     # ---- the table behind the figure ----
     taus = [0.005, 0.01, 0.025, 0.05, 0.10, 0.25, 0.50]
@@ -161,7 +164,7 @@ def main() -> None:
     rows += [(l.split("  (")[0].replace("$", "").replace("\\", ""), f)
              for f, _, _, l in PANEL_A]
     rows += [("Exponential", Exponential()), ("Beta(0.5,1)", BetaPower(0.5))]
-    with open("R_tau_table.csv", "w", newline="") as fh:
+    with open("eta_tau_table.csv", "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["family"] + [f"tau={t:g}" for t in taus])
         for lab, fam in rows:
@@ -170,7 +173,7 @@ def main() -> None:
             else:
                 w.writerow([lab] + [f"{float(np.atleast_1d(fam.R_closed(t))[0]):.6f}"
                                     for t in taus])
-    print("wrote R_tau_table.csv")
+    print("wrote eta_tau_table.csv")
 
 
 if __name__ == "__main__":

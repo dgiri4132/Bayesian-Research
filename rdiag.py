@@ -33,17 +33,16 @@ Signs: Y is a return and I look at the LOWER tail, tau < 1/2,
 VaR = F^{-1}(tau), CVaR = E[Y | Y <= VaR], so CVaR < VaR and e_L > 0.
 
 Every family gives mean / var_ / cvar in closed form and R_closed plugs them
-into B1. Most families also have R_simplified, a formula I worked out
-separately, as a second check that doesn't reuse the same three quantities.
+into B1.
 """
 
 from __future__ import annotations
 
 import numpy as np
-from scipy import special, stats
+from scipy import stats
 
 __all__ = [
-    "R_general", "R_original", "R_mean_excess", "R_sample", "FAMILIES", "Family",
+    "R_general", "R_original", "R_mean_excess", "R_sample", "Family",
     "Normal", "StudentT", "Laplace", "Uniform", "Exponential", "LogNormal",
     "NegGPD", "AsymmetricLaplace", "BetaPower",
 ]
@@ -72,7 +71,7 @@ def R_sample(y, tau, use_effective_tau=True):
 
     A sample splits at an index, not a probability. With n = 2512 and
     tau = 0.05, tau*n = 125.6, so no split gives exactly 0.05. I take
-    k = round(tau*n) and, with use_effective_tau, use tau_eff = k/n. At tau_eff
+    k = floor(tau*n + 1/2) and, with use_effective_tau, use tau_eff = k/n. At tau_eff
     all three forms agree to machine precision because
     mu = (1-tau_eff) ybar_up + tau_eff CVaR holds exactly in the sample. At the
     nominal tau the general form differs from the other two by a small
@@ -99,7 +98,7 @@ def R_sample(y, tau, use_effective_tau=True):
 # ---- families ----
 
 class Family:
-    """Base class. Each family gives mean(), var_(tau), cvar(tau), rvs(n, rng)."""
+    """Base class. Each family gives mean(), var_(tau), cvar(tau)."""
 
     name = "family"
     label = "family"
@@ -107,7 +106,6 @@ class Family:
     # 'gumbel', or 'weibull' (bounded on the left)
     mda = None
     tail_index = None      # alpha, for frechet
-    left_endpoint = None   # x_L, for weibull
 
     def mean(self):
         raise NotImplementedError
@@ -116,9 +114,6 @@ class Family:
         raise NotImplementedError
 
     def cvar(self, tau):
-        raise NotImplementedError
-
-    def rvs(self, n, rng):
         raise NotImplementedError
 
     # ---- worked out from the three above ----
@@ -130,10 +125,6 @@ class Family:
     def R_closed(self, tau):
         tau = np.asarray(tau, dtype=float)
         return R_general(self.mean(), self.var_(tau), self.cvar(tau), tau)
-
-    def R_simplified(self, tau):
-        """Separate formula for R, None if the family doesn't have a neat one."""
-        return None
 
     def __repr__(self):
         return f"<{self.name}>"
@@ -157,16 +148,6 @@ class Normal(Family):
         z = stats.norm.ppf(tau)
         return self.loc - self.scale * stats.norm.pdf(z) / tau
 
-    def R_simplified(self, tau):
-        # R = phi(z) / [ (1-tau) ( z + phi(z)/tau ) ],  z = Phi^{-1}(tau)
-        # doesn't depend on loc or scale
-        z = stats.norm.ppf(tau)
-        p = stats.norm.pdf(z)
-        return p / ((1.0 - tau) * (z + p / tau))
-
-    def rvs(self, n, rng):
-        return rng.normal(self.loc, self.scale, n)
-
 
 class StudentT(Family):
     mda = "frechet"
@@ -189,15 +170,6 @@ class StudentT(Family):
         f = stats.t.pdf(q, self.nu)
         # standard t result: ES = -( (nu + q^2) / (nu - 1) ) f(q) / tau
         return self.loc - self.scale * (self.nu + q * q) / (self.nu - 1.0) * f / tau
-
-    def R_simplified(self, tau):
-        q = stats.t.ppf(tau, self.nu)
-        f = stats.t.pdf(q, self.nu)
-        g = (self.nu + q * q) / (self.nu - 1.0) * f       # = tau * (mu - CVaR)/scale
-        return g / ((1.0 - tau) * (q + g / tau))
-
-    def rvs(self, n, rng):
-        return self.loc + self.scale * rng.standard_t(self.nu, n)
 
 
 class Laplace(Family):
@@ -237,18 +209,6 @@ class Laplace(Family):
         )
         return np.where(tau < 0.5, lower, upper)
 
-    def R_simplified(self, tau):
-        # only for tau < 1/2:  e_L = b,  mu - CVaR = b(1 - ln 2tau)
-        # R = tau (1 - ln(2 tau)) / (1 - tau)
-        return np.where(
-            tau < 0.5,
-            tau * (1.0 - np.log(2.0 * tau)) / (1.0 - tau),
-            np.nan,
-        )
-
-    def rvs(self, n, rng):
-        return self.loc + rng.laplace(0.0, self.scale, n)
-
 
 class Uniform(Family):
     name = "uniform"
@@ -257,7 +217,6 @@ class Uniform(Family):
 
     def __init__(self, a=0.0, b=1.0):
         self.a, self.b = float(a), float(b)
-        self.left_endpoint = self.a
 
     def mean(self):
         return 0.5 * (self.a + self.b)
@@ -268,15 +227,6 @@ class Uniform(Family):
     def cvar(self, tau):
         return self.a + 0.5 * tau * (self.b - self.a)
 
-    def R_simplified(self, tau):
-        # mu - CVaR = (b-a)(1-tau)/2 and VaR - CVaR = (b-a) tau/2, so R = 1 at
-        # every tau. a uniform is nothing like an AL, so R = 1 on its own
-        # doesn't prove the AL fits, it's necessary not sufficient
-        return np.ones_like(np.asarray(tau, dtype=float))
-
-    def rvs(self, n, rng):
-        return rng.uniform(self.a, self.b, n)
-
 
 class Exponential(Family):
     name = "exponential"
@@ -285,7 +235,6 @@ class Exponential(Family):
 
     def __init__(self, scale=1.0):
         self.scale = float(scale)
-        self.left_endpoint = 0.0
 
     def mean(self):
         return self.scale
@@ -296,14 +245,6 @@ class Exponential(Family):
     def cvar(self, tau):
         L = -np.log1p(-tau)
         return self.scale * (tau - (1.0 - tau) * L) / tau
-
-    def R_simplified(self, tau):
-        # R = tau L / (L - tau),  L = -log(1-tau).   R -> 2 as tau -> 0
-        L = -np.log1p(-tau)
-        return tau * L / (L - tau)
-
-    def rvs(self, n, rng):
-        return rng.exponential(self.scale, n)
 
 
 class LogNormal(Family):
@@ -316,7 +257,6 @@ class LogNormal(Family):
 
     def __init__(self, s=1.0, scale=1.0):
         self.s, self.scale = float(s), float(scale)
-        self.left_endpoint = 0.0
 
     def mean(self):
         return self.scale * np.exp(0.5 * self.s ** 2)
@@ -327,9 +267,6 @@ class LogNormal(Family):
     def cvar(self, tau):
         z = stats.norm.ppf(tau)
         return self.mean() * stats.norm.cdf(z - self.s) / tau
-
-    def rvs(self, n, rng):
-        return self.scale * np.exp(self.s * rng.normal(0.0, 1.0, n))
 
 
 class BetaPower(Family):
@@ -349,7 +286,6 @@ class BetaPower(Family):
 
     def __init__(self, gamma):
         self.gamma = float(gamma)
-        self.left_endpoint = 0.0
         self.name = f"beta{self.gamma:g}".replace(".", "")
         self.label = f"Beta($\\gamma$={self.gamma:g},1)"
 
@@ -362,19 +298,12 @@ class BetaPower(Family):
     def cvar(self, tau):
         return self.gamma / (self.gamma + 1.0) * self.var_(tau)
 
-    def R_simplified(self, tau):
-        q = np.asarray(tau, dtype=float) ** (1.0 / self.gamma)
-        return tau * self.gamma * (1.0 - q) / ((1.0 - tau) * q)
-
-    def rvs(self, n, rng):
-        return rng.uniform(size=n) ** (1.0 / self.gamma)
-
 
 class NegGPD(Family):
     """
     Y = -X with X ~ GPD(xi, beta) on [0, inf). The lower tail of Y is the
     Pareto upper tail of X, so this is the family with a real Pareto left tail,
-    the one the GPD splice paragraph is about. Needs xi < 1 for a finite mean.
+    the one used for the Frechet case in B3(i) and Figure 2. Needs xi < 1 for a finite mean.
 
         R(tau) = tau (1 - tau^xi) / ( xi (1 - tau) )        (no beta in it)
 
@@ -406,15 +335,6 @@ class NegGPD(Family):
     def cvar(self, tau):
         u = self._u(tau)
         return -(u + (self.beta + self.xi * u) / (1.0 - self.xi))
-
-    def R_simplified(self, tau):
-        if abs(self.xi) < 1e-12:
-            return tau * (-np.log(tau)) / (1.0 - tau)
-        return tau * (1.0 - tau ** self.xi) / (self.xi * (1.0 - tau))
-
-    def rvs(self, n, rng):
-        return -stats.genpareto.rvs(self.xi, scale=self.beta, size=n,
-                                    random_state=rng)
 
 
 class AsymmetricLaplace(Family):
@@ -451,28 +371,3 @@ class AsymmetricLaplace(Family):
                       + (tau - p) * s / p
                       - d * (1.0 - tau)) / np.where(tau > 0, tau, 1.0)
         return np.where(tau <= p, lower, upper)
-
-    def R_simplified(self, tau):
-        # at tau = p:  mu - CVaR = sigma/p  and  VaR - CVaR = sigma/(1-p),  so R = 1
-        return np.where(np.isclose(tau, self.p), 1.0, np.nan)
-
-    def rvs(self, n, rng):
-        p, s, th = self.p, self.sigma, self.theta
-        u = rng.uniform(size=n)
-        lower = th + s * np.log(u / p) / (1.0 - p)
-        upper = th - s * np.log((1.0 - u) / (1.0 - p)) / p
-        return np.where(u <= p, lower, upper)
-
-
-# ---- the standard list of families ----
-FAMILIES = [
-    Normal(),
-    StudentT(5),
-    StudentT(3),
-    Laplace(),
-    Uniform(),
-    Exponential(),
-    LogNormal(),
-    NegGPD(0.30),
-    NegGPD(0.15),
-]

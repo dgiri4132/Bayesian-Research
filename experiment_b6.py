@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
 """
-EXPERIMENT B6 -- R across many real stocks.
+EXPERIMENT B6  is R across many real stocks.
 
-Bayesian CVaR project.  Darshan Giri / Prof. Songfeng Zheng.
+Bayesian CVaR project.  Darshan Giri.
 
-Everything else in the paper is on SPY, so someone could say the R result is
-just an SPY thing. This file works out R for a lot of stocks at once. R only
-needs three numbers per asset, the mean, the tau-quantile and the mean below
-the quantile, so a few hundred stocks is cheap once I have the prices.
-
-I cut B6 on 5 Sep 2026 because the only panel I had then was a public mirror
-(2013 to 2018) and I couldn't check where it came from. I brought it back on
-27 Sep 2026 after downloading the prices myself. The numbers in the paper come
-only from my download, never from the old mirror file (sp500_5yr_raw.csv).
+Everything else in the paper is on SPY, so I thought someone could say the R
+result is just an SPY thing. This file works out R for a lot of stocks at once.
+R only needs three numbers per asset, the mean, the tau-quantile and the mean
+below the quantile, so a few hundred stocks is cheap once I have the prices.
 
 My download:
     - SPY plus the 503 current S&P 500 stocks from the Wikipedia list, fetched
@@ -21,74 +16,40 @@ My download:
     - yfinance, auto-adjusted close, 2015-08-17 to 2025-08-14, the same window
       as the SPY sample (2512 returns)
     - 6 tickers failed to download and 6 had fewer than 750 returns, so 492
-      stocks are used
+      series are used (SPY and 491 stocks)
     - prices saved in B6_mine_panel.csv, results in B6_mine.json and
       B6_mine_by_asset.csv
 
     to make the same files:
-
-        python3 experiment_b6.py --tickers "$(cat sp500_tickers_20260927.txt)" \\
-            --start 2015-08-17 --end 2025-08-14 --save-panel B6_mine_panel.csv \\
-            --json B6_mine.json --csv B6_mine_by_asset.csv
+       python3 experiment_b6.py --tickers "$(cat sp500_tickers_20260927.txt)" --save-panel B6_mine_panel.csv
+        
 
     This downloads again and Yahoo revises prices, so the last digits can move
     a bit. The saved panel is what the paper's numbers come from.
-
-Things to say next to the numbers in the paper:
-    - these are TODAY's S&P 500 stocks, so companies that left the index since
-      2015 are missing
-    - the stocks share the same market history, so they aren't independent
-    - at tau = 0.01 each stock only has about 25 tail days
-
-usage:  python3 experiment_b6.py [--panel FILE] [--csv-dir DIR] [--tickers LIST]
-                                 [--start YYYY-MM-DD] [--end YYYY-MM-DD]
-                                 [--min-obs N] [--json OUT.json]
 """
 
 from __future__ import annotations
 
 import argparse
-import glob
 import json
-import os
 import platform
 import sys
 
 import numpy as np
 import pandas as pd
 
-from rdiag import R_sample, Normal, StudentT, NegGPD
+from rdiag import R_sample, Normal, StudentT
 
 TAUS = (0.01, 0.05, 0.10)
 
 
-# ---- loaders ----
+#loaders
 
-def from_long_panel(path: str) -> dict[str, pd.Series]:
-    """A single long CSV with columns date, close, Name."""
-    d = pd.read_csv(path, usecols=["date", "close", "Name"])
-    d = d.dropna(subset=["close"])
-    out = {}
-    for name, g in d.groupby("Name"):
-        s = g.sort_values("date")["close"].astype(float)
-        out[str(name)] = s.reset_index(drop=True)
-    return out
-
-
-def from_csv_dir(d: str) -> dict[str, pd.Series]:
-    out = {}
-    for p in sorted(glob.glob(os.path.join(d, "*.csv"))):
-        t = pd.read_csv(p)
-        cols = {c.lower(): c for c in t.columns}
-        cc = cols.get("close") or cols.get("adj close") or cols.get("adj_close")
-        dc = cols.get("date")
-        if cc is None:
-            continue
-        if dc is not None:
-            t = t.sort_values(dc)
-        out[os.path.splitext(os.path.basename(p))[0]] = (
-            t[cc].astype(float).dropna().reset_index(drop=True))
-    return out
+def from_panel(path):
+    # the wide file from_yfinance saves, a Date column then one column of prices
+    # per ticker. round_trip reads every price back exactly as it was saved
+    px = pd.read_csv(path, index_col=0, float_precision="round_trip")
+    return {c: px[c].dropna().reset_index(drop=True) for c in px.columns}
 
 
 def from_yfinance(tickers, start, end, save_to="panel_downloaded.csv"
@@ -112,7 +73,7 @@ def from_yfinance(tickers, start, end, save_to="panel_downloaded.csv"
     return {c: px[c].dropna().reset_index(drop=True) for c in px.columns}
 
 
-# ---- returns ----
+# returns 
 
 def simple_returns(px: pd.Series) -> np.ndarray:
     """
@@ -128,22 +89,21 @@ def simple_returns(px: pd.Series) -> np.ndarray:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--panel", default="sp500_5yr_raw.csv")
-    ap.add_argument("--csv-dir", default=None)
+    ap.add_argument("--panel", default="B6_mine_panel.csv")
     ap.add_argument("--tickers", default=None,
                     help="comma-separated; uses yfinance")
-    ap.add_argument("--start", default="2015-08-18")
-    ap.add_argument("--end", default="2025-08-13")
+    ap.add_argument("--start", default="2015-08-17")
+    ap.add_argument("--end", default="2025-08-14")
     ap.add_argument("--min-obs", type=int, default=750)
-    ap.add_argument("--json", default="experiment_B6_results.json")
-    ap.add_argument("--csv", default="experiment_B6_R_by_asset.csv")
+    ap.add_argument("--json", default="B6_mine.json")
+    ap.add_argument("--csv", default="B6_mine_by_asset.csv")
     ap.add_argument("--save-panel", default="panel_downloaded.csv",
                     help="where to save a downloaded panel so the run is "
                          "reproducible; pass '' to skip")
     args = ap.parse_args()
 
     print("=" * 78)
-    print("EXPERIMENT B6 -- R across many real assets")
+    print("EXPERIMENT B6: R across many real assets")
     print("=" * 78)
 
     if args.tickers:
@@ -151,17 +111,9 @@ def main() -> int:
         tick = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
         print(f"  downloading {len(tick)} tickers, {args.start} .. {args.end}")
         data = from_yfinance(tick, args.start, args.end, save_to=args.save_panel)
-    elif args.csv_dir:
-        src = f"csv-dir {args.csv_dir}"
-        data = from_csv_dir(args.csv_dir)
     else:
-        src = f"long panel {args.panel}"
-        if not os.path.exists(args.panel):
-            print(f"  panel file {args.panel} not found; nothing to do.")
-            print("  supply --panel, --csv-dir or --tickers.  See the module")
-            print("  docstring for the provenance caveats.")
-            return 2
-        data = from_long_panel(args.panel)
+        src = f"panel {args.panel}"
+        data = from_panel(args.panel)
 
     print(f"  source        {src}")
     print(f"  python        {platform.python_version()}  numpy {np.__version__}")
@@ -210,29 +162,13 @@ def main() -> int:
 
     # reference values from the closed forms, same tau grid
     print("\n  for comparison, the closed forms (Experiment B2):")
-    print(f"  {'':>6s} {'Normal':>9s} {'t(5)':>9s} {'t(3)':>9s} "
-          f"{'GPD .3':>9s} {'AL':>9s}")
+    print(f"  {'':>6s} {'Normal':>9s} {'t(3)':>9s}")
     refs = {}
     for t in TAUS:
         vals = [float(np.atleast_1d(f.R_closed(t))[0])
-                for f in (Normal(), StudentT(5), StudentT(3), NegGPD(0.30))]
+                for f in (Normal(), StudentT(3))]
         refs[f"{t:g}"] = vals
-        print(f"  {t:6.2f} " + "".join(f"{v:9.4f}" for v in vals) + f"{1.0:9.4f}")
-
-    print("""
-  WHAT THIS SHOWS.  Every stock is way below the AL's 1, and the spread across
-  all of them is narrow. The median at tau = 0.05 is between the closed forms
-  for t(3) and the Normal, which is where you'd expect real stock returns to
-  be. So the failure I showed on SPY is not just an SPY thing.
-
-  CAVEATS to put next to this in the paper.  (1) R here is a plug-in estimate,
-  so it has the same granularity issue as in B1, and at tau = 0.01 each stock
-  only has a handful of tail days, so trust the tau = 0.05 row most.  (2) The
-  stocks share the same market history, so they aren't independent and the
-  spread understates how noisy a single R is.  (3) These are today's S&P 500
-  stocks, so companies that left the index since 2015 are missing.  The note at
-  the top of the file says where the data came from.
-""")
+        print(f"  {t:6.2f} " + "".join(f"{v:9.4f}" for v in vals))
 
     df.to_csv(args.csv, index=False)
     out = {"source": src, "n_assets": len(df), "min_obs": args.min_obs,

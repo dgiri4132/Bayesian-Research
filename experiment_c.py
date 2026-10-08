@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-EXPERIMENT C -- the regression case.
+EXPERIMENT C the regression case.
 
-Bayesian CVaR project.  Darshan Giri / Prof. Songfeng Zheng.
+Bayesian CVaR project.  Darshan Giri 
 
-I made this file because Spy_run.py, experiment_A.py and experiment_B.py all fit
-an intercept-only model, i.e. one VaR for every day, but the paper is about
-quantile REGRESSION. So someone could basically say I showed the failure in the
-wrong model. This file fits an actual regression to see if the failure is still
-there.
+I made this file because Spy_run.py, experiment_a.pyand experiment_b_overall.py
+all fit an intercept-only model, i.e. one VaR for every day, but the paper is
+about quantile REGRESSION. So someone could basically say I showed the failure
+in the wrong model. This file fits an actual regression to see if the failure
+is still there.
 
 The main idea is that, under the AL, the overshoot past the quantile is
 
@@ -33,21 +33,19 @@ The model:
     VaR_t = b0 + b1 |r_{t-1}| + b2 sd(r_{t-20..t-1})
     Both covariates only use data up to t-1 so there's no look-ahead. I
     standardise them so the N(0,1) prior is wide compared to the coefficients,
-    which means the coefficients are per sd of each covariate (C1 converts b2
-    back to raw units).
+    which means the coefficients are per sd of each covariate.
 
 Note: this uses 2492 rows since the 20 day window eats the first 20, not the
 2512 in Spy_run.py, so  please don't put a number from one next to a number from
 the other.
 
-usage:  python3 experiment_C.py [returns.csv] [--quick] [--json OUT] [--no-figures]
+usage:  python3 experiment_c.py [returns.csv] [--quick] [--json OUT]
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 
@@ -67,19 +65,16 @@ RHAT_TARGET = 1.01
 N_BOOT = 4000
 SEED = 20260901
 
-PAL = {"blue": "#2a78d6", "orange": "#eb6834", "aqua": "#1baf7a",
-       "yellow": "#eda100", "magenta": "#e87ba4", "green": "#008300",
-       "violet": "#4a3aa7", "red": "#e34948"}
+PAL = {"blue": "#2a78d6", "violet": "#4a3aa7", "red": "#e34948"}
 INK, INK2, GRID = "#0b0b0b", "#52514e", "#d9d8d3"
 
 RESULTS: dict = {}
 FAILURES: list[str] = []
 
 
-def check(name, ok, detail="", hard=True):
-    tag = "PASS" if ok else ("FAIL" if hard else "note")
-    print(f"    [{tag}] {name}" + (f"  --  {detail}" if detail else ""))
-    if not ok and hard:
+def check(name, ok, detail=""):
+    print(f"    [{'PASS' if ok else 'FAIL'}] {name}" + (f"  --  {detail}" if detail else ""))
+    if not ok:
         FAILURES.append(f"{name}: {detail}")
     return ok
 
@@ -118,33 +113,17 @@ def build_design(path):
     m2, s2 = vol.mean(), vol.std(ddof=1)
     X = np.column_stack([np.ones(y.size), (abs_lag - m1) / s1, (vol - m2) / s2])
 
-    print(f"""
-    VaR_t = b0 + b1 |r_(t-1)| + b2 sd(r_(t-20..t-1))
-
-    Both covariates are known at t-1. |r_(t-1)| is yesterday's absolute return
-    and the other one is the sd of the {WINDOW} returns before t, so no day gets
-    used to predict itself. The first {WINDOW} rows are lost to the window.
-""")
     print(f"  observations      {y.size} (from {r.size}, window {WINDOW})")
     print(f"  period            {d[0]} .. {d[-1]}")
-    print(f"  |r_(t-1)|         mean {m1:.6f}  sd {s1:.6f}")
-    print(f"  vol{WINDOW}             mean {m2:.6f}  sd {s2:.6f}"
-          f"   range {vol.min():.6f}..{vol.max():.6f}")
-    print(f"  corr(|r_(t-1)|, vol{WINDOW}) = {np.corrcoef(abs_lag, vol)[0,1]:.4f}")
-    print("  covariates are standardised so the N(0,1) prior is wide enough,")
-    print("  so the coefficients are per sd (C1 converts b2 to raw units).")
 
     RESULTS["C0"] = {"n": int(y.size), "window": WINDOW,
-                     "first": str(d[0]), "last": str(d[-1]),
-                     "abs_lag_mean": float(m1), "abs_lag_sd": float(s1),
-                     "vol_mean": float(m2), "vol_sd": float(s2),
-                     "corr": float(np.corrcoef(abs_lag, vol)[0, 1])}
-    return y, X, vol, abs_lag, d, (m1, s1, m2, s2)
+                     "first": str(d[0]), "last": str(d[-1])}
+    return y, X, vol, d
 
 
 # C1  the fit 
 
-def C1(y, X, scal, quick):
+def C1(y, X, quick):
     rule("C1  the conditional fit")
     n_iter = 6000 if quick else N_ITER
     burn = 2000 if quick else BURN_IN
@@ -181,10 +160,6 @@ def C1(y, X, scal, quick):
     print(f"  {'sigma':<18}{sa.mean():>12.7f}{lo:>12.7f}{hi:>12.7f}"
           f"{rhat_s:>9.5f}{sum(K.ess(c) for c in sgs):>9.0f}")
 
-    m1, s1, m2, s2 = scal
-    print(f"\n  in raw units: a one sd rise in vol{WINDOW}"
-          f"\n  ({s2:.6f}) moves the fitted 5% quantile by {om[:,2].mean():+.6f}.")
-
     converged = max(max(rhats), rhat_s) < RHAT_TARGET
     check("C1  every parameter converged", converged,
           f"worst R-hat {max(max(rhats), rhat_s):.5f}")
@@ -193,17 +168,11 @@ def C1(y, X, scal, quick):
 
     var_t = X @ om.mean(axis=0)
     hit = float((y < var_t).mean())
-    print(f"\n  validity check: the fitted quantile plane cuts "
-          f"{100*hit:.2f}% of the data")
-    print(f"  (target {100*TAU:.2f}%). If this was off there wouldn't be a real")
-    print("  quantile model to talk about.")
     check("C1  the fitted plane cuts tau of the data (within 1 point)",
           abs(hit - TAU) < 0.01, f"{100*hit:.2f}% against {100*TAU:.2f}%")
 
     print(f"\n  fitted VaR_t ranges {var_t.min():.5f} .. {var_t.max():.5f}"
           f"  -- a factor of {var_t.min()/var_t.max():.1f}")
-    print(f"  the intercept-only fit in Spy_run.py (all 2512 days) gave one VaR,")
-    print(f"  -0.017353, for every day. C4 refits it on these same {y.size} rows.")
 
     RESULTS["C1"] = {"coefficients": coefs, "sigma_mean": float(sa.mean()),
                      "sigma_lo": float(lo), "sigma_hi": float(hi),
@@ -219,18 +188,10 @@ def C2(y, var_t, om, sa, vol):
     rule("C2  one overshoot for every day, against what actually happened")
     rng = np.random.default_rng(SEED)
     br = y < var_t
-    over = var_t[br] - y[br]
     al = float(sa.mean() / (1 - TAU))
     al_lo, al_hi = (float(v) for v in np.percentile(sa / (1 - TAU), [2.5, 97.5]))
 
-    print(f"""
-    Under the AL, VaR_t - ES_t = sigma/(1-tau) and sigma is one number. The
-    fitted value is {al:.6f}, 95% CI [{al_lo:.6f}, {al_hi:.6f}], and the model uses
-    it on all {y.size} days no matter what x_t is.
-
-    Below is the actual average overshoot on the days the quantile was breached,
-    split up by volatility. Bootstrap CIs with {N_BOOT} resamples.
-""")
+    print(f"  AL overshoot {al:.6f}, 95% CI [{al_lo:.6f}, {al_hi:.6f}], on every day")
     print(f"  breaches: {int(br.sum())} of {y.size} = {100*br.mean():.2f}%\n")
     all_rows, worst_ratio, all_exclude = [], np.inf, True
     for nb in (2, 3, 4):
@@ -263,35 +224,23 @@ def C2(y, var_t, om, sa, vol):
     check("C2  the AL understates the overshoot by at least 3x everywhere",
           worst_ratio > 3.0, f"smallest ratio {worst_ratio:.2f}x")
 
-    print(f"""    So the AL is too thin by {worst_ratio:.1f}x to {max(r['ratio'] for r in all_rows):.1f}x depending on the
-    regime, and none of the buckets even get close to the AL's interval.
-    Adding covariates did move the quantile (VaR_t now ranges over a factor of
-    {var_t.min()/var_t.max():.1f}) but the overshoot the model claims is still one number for
-    every day, since sigma doesn't depend on x. (C5 shows conditioning does
-    make the miss smaller overall, it just doesn't make it right.)""")
     RESULTS["C2"] = {"al_overshoot": al, "al_ci": [al_lo, al_hi],
                      "breaches": int(br.sum()), "rows": all_rows,
                      "worst_ratio": float(worst_ratio)}
-    return br, over
+    return br
 
 
-# ---- C3  the negative result
+# C3  :the negative result
 
 def C3(y, var_t, vol, br):
     rule("C3  does the realised overshoot VARY with volatility?  NOT ESTABLISHED.")
     over = var_t[br] - y[br]
     v = vol[br]
-    print(f"""
-    It's tempting to also say the real overshoot grows with volatility while
-    the model keeps it fixed. But the data here doesn't really support that, so
-    I  think it should be reported as a negative.
-""")
     rho, p_s = stats.spearmanr(v, over)
     sl, ic, r_, p_o, se = stats.linregress(v, over)
     print(f"  Spearman rank correlation   rho = {rho:+.3f},  p = {p_s:.3f}")
     print(f"  OLS slope                   {sl:+.4f} (se {se:.4f}),  p = {p_o:.3f}")
-    print(f"\n  The two tests don't agree, so I check if a few days are driving it")
-    print(f"  by dropping the highest-volatility breach days one at a time:\n")
+    print("\n  dropping the highest-volatility breach days:")
     print(f"    {'dropped':<10}{'n':>5}{'OLS slope':>12}{'p':>9}{'Spearman p':>13}")
     order = np.argsort(v)[::-1]
     drops = []
@@ -304,24 +253,12 @@ def C3(y, var_t, vol, br):
                       "p_ols": float(p2), "p_spearman": float(ps2)})
         print(f"    {k:<10}{int(m.sum()):>5}{s2:>12.4f}{p2:>9.3f}{ps2:>13.3f}")
 
-    p3 = drops[3]["p_ols"]
-    print(f"""
-    So the OLS result is basically carried by 3 days. If you take them out then
-    slope is {drops[3]['slope']:+.4f} with p = {p3:.3f}, and the rank test never finds
-    anything. With {int(br.sum())} breaches spread over four regimes this experiment can't
-    really answer the question, so I'm reporting it as a negative.
-
-    This doesn't hurt C2 though. C2 says the model's overshoot is off by 3.9x
-    to 9x in every regime, and that doesn't need C3 at all.""")
-    check("C3  reported as not established (this check documents, it does not gate)",
-          True, f"Spearman p = {p_s:.3f}; OLS p = {p_o:.3f} but {p3:.3f} "
-                f"after dropping 3 days", hard=False)
     RESULTS["C3"] = {"spearman_rho": float(rho), "spearman_p": float(p_s),
                      "ols_slope": float(sl), "ols_p": float(p_o),
-                     "leverage": drops, "established": False}
+                     "leverage": drops}
 
 
-# C4  does adding covariates fix anything? 
+# C4  does adding covariates fix anything? The real question
 
 def C4(y, var_t, sa, om):
     rule("C4  does adding covariates fix the shortfall?")
@@ -339,16 +276,7 @@ def C4(y, var_t, sa, om):
     {'VaR':<26}{f'{io_om:.6f} (fixed)':>18}{f'{var_t.min():.5f}..{var_t.max():.5f}':>18}
     {'sigma':<26}{f'{io_sa:.7f}':>18}{f'{sa.mean():.7f}':>18}
     {'asserted overshoot':<26}{f'{io_al:.6f}':>18}{f'{al:.6f}':>18}
-    {'varies with t?':<26}{'no':>18}{'no':>18}
-
-    The covariates did what they should for the quantile, VaR_t now spans a
-    factor of {var_t.min()/var_t.max():.0f}. But the overshoot the model claims is still one number,
-    and it's actually SMALLER than in the intercept-only fit ({al:.6f} vs
-    {io_al:.6f}). C5 shows why that has to happen.
-
-    This is basically the uniqueness lemma showing up in a regression: the AL
-    only has one scale parameter, the quantile constraint already used it, and
-    adding covariates to the quantile doesn't give it a second one.""")
+    {'varies with t?':<26}{'no':>18}{'no':>18}""")
     RESULTS["C4"] = {"intercept_only_sigma": io_sa,
                      "intercept_only_omega": io_om,
                      "intercept_only_overshoot": io_al,
@@ -358,11 +286,7 @@ def C4(y, var_t, sa, om):
     return io_om, io_sa, io_al, ex
 
 
-# ---- C5  the two models compared, every direction checked ----
-#
-# I added this section because I once wrote "the conditional model is more
-# confident in a shortfall FURTHER from the truth".So  every comparison
-# about C is computed and checked here.
+# C5  the two models compared and every direction checked 
 
 def C5(y, var_t, sa, io_om, io_sa, io_al, ex):
     rule("C5  intercept-only vs conditional, every direction checked")
@@ -400,8 +324,7 @@ def C5(y, var_t, sa, io_om, io_sa, io_al, ex):
 
     # (1) the mechanical part. the intercept-only model is nested in the
     # conditional one (set the slopes to 0), so the minimised check loss can't
-    # go up, and sigma-hat IS that loss. so the claimed overshoot sigma/(1-tau)
-    # shrinks whenever the quantile fit gets better
+    # go up, and sigma-hat IS that loss.
     check("C5  the conditional fit lowers the check loss (nesting => it must)",
           cl_c <= cl_i,
           f"{cl_i:.9f} -> {cl_c:.9f}, {(1-cl_c/cl_i)*100:.2f}% lower")
@@ -420,23 +343,9 @@ def C5(y, var_t, sa, io_om, io_sa, io_al, ex):
           f"{over_i-io_al:.6f} -> {over_c-al:.6f}")
 
     # (3) what the paper can say: conditioning doesn't make ES worse, it just
-    # doesn't make it right
+    # doesn't make it right, which I think is proofable enough for the paper.
     check("C5  conditioning does not make the shortfall right (still >3x)",
           over_c / al > 3.0, f"{over_c/al:.2f}x")
-
-    print(f"""
-    So what the paper can say is that conditioning does NOT make the shortfall
-    worse: {over_i/io_al:.2f}x becomes {over_c/al:.2f}x and the absolute miss drops from {over_i-io_al:.6f}
-    to {over_c-al:.6f}, because a quantile line that adapts doesn't get breached as
-    badly. What it doesn't do is make the shortfall RIGHT, the miss is still a
-    factor of {over_c/al:.1f} overall and 3.9x to 9x in every volatility bucket (C2), and
-    the model gets {(1-w_c/w_i)*100:.0f}% MORE confident about it.
-
-    The reason is mechanical. sigma-hat is the minimised check loss, so it's
-    both the fit statistic for the quantile and the only thing that sets the
-    claimed overshoot sigma/(1-tau). Since the models are nested the check loss
-    can't go up when I add covariates (here it drops {(1-cl_c/cl_i)*100:.1f}%), so the claimed
-    overshoot has to shrink too (here {(1-al/io_al)*100:.1f}%).""")
 
     RESULTS["C5"] = {
         "check_loss": {"intercept_only": cl_i, "conditional": cl_c,
@@ -450,9 +359,7 @@ def C5(y, var_t, sa, io_om, io_sa, io_al, ex):
         "ci_width": {"intercept_only": w_i, "conditional": w_c,
                      "narrowing_pct": (1 - w_c / w_i) * 100},
         "breaches": {"intercept_only": int(br_i.sum()),
-                     "conditional": int(br_c.sum())},
-        "conditional_is_closer": bool(over_c / al < over_i / io_al),
-        "conditional_is_more_confident": bool(w_c < w_i)}
+                     "conditional": int(br_c.sum())}}
 
 
 # figures 
@@ -536,7 +443,6 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("csv", nargs="?", default="spy_returns_2015_2025.csv")
     ap.add_argument("--quick", action="store_true")
-    ap.add_argument("--no-figures", action="store_true")
     ap.add_argument("--json", default="experiment_C_results.json")
     args = ap.parse_args()
 
@@ -545,24 +451,19 @@ def main() -> int:
     rule("EXPERIMENT C -- the regression case")
     env = K.print_env_stamp("  ")
     print(f"  tau {TAU} | window {WINDOW} | seed {BASE_SEED}")
-    if not os.path.exists(args.csv):
-        print(f"  returns file {args.csv} not found.")
-        return 2
 
-    y, X, vol, abs_lag, dates, scal = build_design(args.csv)
-    fit = C1(y, X, scal, args.quick)
+    y, X, vol, dates = build_design(args.csv)
+    fit = C1(y, X, args.quick)
     if fit is None:
         rule("HALTED -- chains did not converge")
         return 1
     om, sa, var_t = fit
-    br, over = C2(y, var_t, om, sa, vol)
+    br = C2(y, var_t, om, sa, vol)
     C3(y, var_t, vol, br)
     io_om, io_sa, io_al, ex_io = C4(y, var_t, sa, om)
     C5(y, var_t, sa, io_om, io_sa, io_al, ex_io)
 
-    written = []
-    if not args.no_figures:
-        written.append(make_figure(y, var_t, vol, sa, dates))
+    written = [make_figure(y, var_t, vol, sa, dates)]
 
     RESULTS["_meta"] = {"env": env, "tau": TAU, "window": WINDOW,
                         "seed": BASE_SEED, "failures": FAILURES,

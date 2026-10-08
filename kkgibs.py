@@ -1,13 +1,13 @@
 """
 This is the shared core for the Bayesian CVaR project since the revision of my paper.
 
-It is a single module so that spy_run.py, experiment_A.py, experiment_B.py,
-experiment_C.py and rdiag.py cannot drift apart: there is exactly one sampler,
-one set of diagnostics, one set of AL formulas, and one definition of the
-empirical estimators in the whole project.
+It is a single module so that Spy_run.py, experiment_a.py,
+experiment_b_overall.py, experiment_c.py and rdiag.py cannot drift apart: there
+is exactly one sampler, one set of diagnostics, one set of AL formulas, and one
+definition of the empirical estimators in the whole project.
 
 Contents
-    AL distribution          al_pdf / al_cdf / al_ppf / al_mean / al_cvar / al_es
+    AL distribution          al_mean / al_es / al_rvs
                              al_es_via_mean   (the second route, for the check)
     AL fit                   al_mle           (the exact maximum-likelihood fit)
     empirical estimators     empirical_var_cvar  (index convention made explicit here)
@@ -16,20 +16,13 @@ Contents
     the exact posterior      exact_posterior     (sigma integrated out analytically)
     environment              env_stamp / set_numeric_guards
 
-    Of the AL block, al_pdf / al_cdf / al_ppf / al_cvar currently have no call
-    site in this project; they are kept because they are the canonical interface
-    a replicator will reach for, and because al_cvar is the only route to CVaR at
-    a level other than tau.  All four are verified against numerical integration
-    (al_cvar to a relative error of 5e-10 across levels 0.01 to 0.90, both
-    branches).  They are correct but unused -- do not treat them as tested by the
-    paper's own runs, because they are not.
-
 CONVENTIONS.
 
     tau         the quantile level, chosen not estimated.  This module is general
-                in tau; the paper's runs use tau = 0.05, and experiment_B sweeps
-                0.01 to 0.25.  Kozumi-Kobayashi call this p.  It is different
-                from the mixture constant, which is tau2_c below.
+                in tau; the paper's runs use tau = 0.05, and
+                experiment_b_overall.py sweeps 0.01 to 0.25.  Kozumi-Kobayashi
+                call this p.  It is different from the mixture constant, which
+                is tau2_c below.
     omega       the location = the tau-quantile = VaR.  K-K call this beta_p.
     sigma       the AL scale.
     theta_c,
@@ -40,7 +33,7 @@ CONVENTIONS.
     Lower tail throughout.  For a return series VaR and CVaR are negative and
     CVaR < VaR.
 
-THE AL's ES CONVERSION, which is what the paper is about.
+THE AL's ES CONVERSION.
 
     Under AL(omega, sigma, tau) the exact expected shortfall is
 
@@ -50,10 +43,11 @@ THE AL's ES CONVERSION, which is what the paper is about.
 
         ES = mu_AL - sigma/tau                                            (identity)
 
-    where mu_AL is the AL's own mean.  Both routes are implemented -- `al_es` and
-    `al_es_via_mean` -- and spy_run1.py section 5 CALLS BOTH on the same posterior
-    draws and asserts they agree, so the identity is verified at run time rather
-    than asserted.  That claim is only true while spy_run1.py calls
+    where mu_AL is the AL's own mean.  Both routes are implemented ,`al_es` and
+    `al_es_via_mean`and Spy_run.py section 5e works out omega - sigma/(1-tau)
+    and calls al_es_via_mean on the same posterior draws and asserts they agree,
+    so the identity is verified at run time rather
+    than asserted.  That claim is only true while Spy_run.py calls
     `al_es_via_mean` rather than re-typing the formula inline; an inline copy is
     not a test of this function.
 """
@@ -61,21 +55,9 @@ THE AL's ES CONVERSION, which is what the paper is about.
 from __future__ import annotations
 
 import platform
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
-
-#  numpy renamed trapz -> trapezoid in 2.0.  Support both so the module runs on
-#  the numpy 1.26 build the earlier results were produced on as well as on 2.x.
-_trapz = getattr(np, "trapezoid", None) or np.trapz
-
-__all__ = [
-    "al_pdf", "al_cdf", "al_ppf", "al_mean", "al_cvar", "al_es",
-    "al_es_via_mean", "al_rvs", "rho_tau", "split_index",
-    "al_mle", "empirical_var_cvar", "gibbs_qr_sampler", "GibbsResult",
-    "split_rhat", "ess", "mcse", "exact_posterior", "ExactPosterior",
-    "env_stamp", "set_numeric_guards", "mixture_constants",
-]
 
 
 def set_numeric_guards() -> None:
@@ -117,35 +99,7 @@ def mixture_constants(tau: float) -> tuple[float, float]:
     return (1 - 2 * tau) / (tau * (1 - tau)), 2.0 / (tau * (1 - tau))
 
 
-def al_pdf(y, omega, sigma, tau):
-    y = np.asarray(y, dtype=float)
-    u = (y - omega) / sigma
-    rho = np.where(u >= 0, tau * u, (tau - 1.0) * u)
-    return tau * (1 - tau) / sigma * np.exp(-rho)
 
-
-def al_cdf(y, omega, sigma, tau):
-    y = np.asarray(y, dtype=float)
-    d = (y - omega) / sigma
-    lo = tau * np.exp((1 - tau) * np.minimum(d, 0.0))
-    hi = 1.0 - (1 - tau) * np.exp(-tau * np.maximum(d, 0.0))
-    return np.where(y <= omega, lo, hi)
-
-
-def al_ppf(q, omega, sigma, tau):
-    """
-    Quantile function.  q = 0 and q = 1 return -inf and +inf rather than the
-    finite garbage a clipped logarithm would give (-724 and +13815 at the old
-    1e-300 clip), which is silently wrong and hard to notice downstream.
-    """
-    q = np.asarray(q, dtype=float)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        lo = omega + sigma * np.log(np.where(q > 0, q, np.nan) / tau) / (1 - tau)
-        hi = omega - sigma * np.log(np.where(q < 1, (1 - q) / (1 - tau), np.nan)) / tau
-    out = np.where(q <= tau, lo, hi)
-    out = np.where(q <= 0.0, -np.inf, out)
-    out = np.where(q >= 1.0, np.inf, out)
-    return out[()] if out.ndim == 0 else out
 
 
 def al_mean(omega, sigma, tau):
@@ -153,21 +107,6 @@ def al_mean(omega, sigma, tau):
     return omega - tau * sigma / (1 - tau) + (1 - tau) * sigma / tau
 
 
-def al_cvar(omega, sigma, tau, level=None):
-    # CVaR at any level, with no level given it is the ES at tau
-    if level is None:
-        return omega - sigma / (1 - tau)
-    level = np.asarray(level, dtype=float)
-    q = al_ppf(level, omega, sigma, tau)
-    return np.where(level <= tau, q - sigma / (1 - tau),
-                    _al_cvar_upper(q, omega, sigma, tau, level))
-
-
-def _al_cvar_upper(q, omega, sigma, tau, level):
-    d = np.clip(q - omega, 0.0, None)
-    return omega + (-tau * sigma / (1 - tau)
-                    + (level - tau) * sigma / tau
-                    - d * (1 - level)) / level
 
 
 def al_es(omega, sigma, tau):
@@ -193,25 +132,25 @@ def rho_tau(u, tau):
     return np.where(u >= 0, tau * u, (tau - 1.0) * u)
 
 
-def al_mle(y, tau, index_convention=True):
+def al_mle(y, tau):
     """
     Maximum-likelihood fit of AL(omega, sigma, .) to a sample, AT tau_eff = k/n.
 
-    Read that carefully: with `index_convention=True` (the default) this is the
-    exact MLE at the sample's own split level tau_eff, not at the nominal tau.
-    The distinction is small -- on SPY at tau = 0.05, sigma_hat = 0.0014383 here
-    against 0.0014354 for the true nominal-tau MLE, a difference of 0.2% -- but a
-    table headed "AL MLE sigma_hat" carries that 0.2%, so the label has to say
-    which.  Both are returned: `sigma_hat` (at tau_eff) and `sigma_hat_nominal`.
+    This is always the exact MLE at the sample's own split level tau_eff, not at 
+    the nominal tau. The distinction is small -- on SPY at tau = 0.05, sigma_hat
+     = 0.0014383 here against 0.0014354 for the true nominal-tau MLE, a difference
+     of 0.2% -- but a table headed "AL MLE sigma_hat" carries that 0.2%, so the 
+    label has to say which.  Both are returned: `sigma_hat` (at tau_eff) and 
+    `sigma_hat_nominal`.
 
     The identities below hold at tau_eff and only at tau_eff, which is why it is
-    the default.
+    used.
 
     omega_hat is the tau-quantile (any minimiser of the check loss); sigma_hat is
     the mean check loss at that point.  Returns the value at the sample's own
     split index, which is where the algebra below is exact.
 
-    THE MEAN IDENTITY, which the paper uses.  With k = round(tau*n),
+    THE MEAN IDENTITY, which the paper uses.  With k = floor(tau*n + 1/2),
     tau_eff = k/n, omega_hat = y_(k) and sigma_hat = mean(rho_tau(y - omega_hat)):
 
         sigma_hat = tau_eff (1 - tau_eff) (ybar_up - CVaR_emp)
@@ -224,7 +163,7 @@ def al_mle(y, tau, index_convention=True):
     y = np.sort(np.asarray(y, dtype=float))
     n = y.size
     k = split_index(tau, n)
-    tau_eff = k / n if index_convention else tau
+    tau_eff = k / n
     omega_hat = y[k - 1]
     sigma_hat = float(np.mean(rho_tau(y - omega_hat, tau_eff)))
     return {
@@ -240,9 +179,8 @@ def al_mle(y, tau, index_convention=True):
 # empirical estimators for the research project
 
 
-def empirical_var_cvar(y, tau, index_convention=True):
-    # historical VaR/CVaR split at index k, also returns the np.quantile version
-    # index_convention isn't actually used, it always splits at k
+def empirical_var_cvar(y, tau):
+    # historical VaR/CVaR split at index k
     y = np.sort(np.asarray(y, dtype=float))
     n = y.size
     k = split_index(tau, n)
@@ -252,8 +190,6 @@ def empirical_var_cvar(y, tau, index_convention=True):
         "CVaR": float(y[:k].mean()),
         "ybar_up": float(y[k:].mean()),
         "mean": float(y.mean()),
-        "VaR_interp": float(np.quantile(y, tau)),
-        "CVaR_interp": float(y[y <= np.quantile(y, tau)].mean()),
         "mean_excess_lower": float(y[k - 1] - y[:k].mean()),
     }
 
@@ -264,16 +200,10 @@ def empirical_var_cvar(y, tau, index_convention=True):
 class GibbsResult:
     omega: np.ndarray                 # (n_kept, k)
     sigma: np.ndarray                 # (n_kept,)
-    seed: int
-    n_iter: int
-    burn_in: int
     # how many times the guard floors were hit. not zero on the SPY run so don't
     # write that the guards never bind, the counts are in spy_results.json
     delta_floor_hits: int = 0
     v_clip_hits: int = 0
-    n_obs: int = 0
-    n_par: int = 0
-    diagnostics: dict = field(default_factory=dict)
 
 
 # same guard values as the original spy_run.py so the random numbers don't change
@@ -283,9 +213,7 @@ V_FLOOR = 1e-8
 
 def gibbs_qr_sampler(X, y, p, n_iter, burn_in, seed,
                      omega_init, sigma_init,
-                     omega_p0=None, B_p0=None, n0=4.0, s0=0.024,
-                     count_guards=True,
-                     delta2_floor=DELTA2_FLOOR, v_floor=V_FLOOR):
+                     omega_p0=None, B_p0=None, n0=4.0, s0=0.024):
     """
     Kozumi-Kobayashi Gibbs sampler for Bayesian quantile regression, with the
     sigma extension.  General in the number of columns of X.
@@ -299,18 +227,12 @@ def gibbs_qr_sampler(X, y, p, n_iter, burn_in, seed,
 
     The default s0 is 0.024, matching the module-level constant used for the
     paper's runs.  (The original file defaulted to 2.0 while passing 0.024
-    explicitly -- harmless there, a trap for any new caller, so the default is
+    explicitly, harmless there, a trap for any new caller, so the default is
     now the value that is actually used.)
     """
     X = np.asarray(X, dtype=float)
     y = np.asarray(y, dtype=float).ravel()
     n, k = X.shape
-    if y.size != n:
-        raise ValueError(f"X has {n} rows but y has {y.size} entries")
-    if not (0.0 < p < 1.0):
-        raise ValueError(f"p must be in (0,1), got {p}")
-    if burn_in >= n_iter:
-        raise ValueError("burn_in must be < n_iter")
 
     rng = np.random.default_rng(seed)
     theta_c, tau2_c = mixture_constants(p)
@@ -321,14 +243,10 @@ def gibbs_qr_sampler(X, y, p, n_iter, burn_in, seed,
     if B_p0 is None:
         B_p0 = np.eye(k)
     B_p0 = np.atleast_2d(np.asarray(B_p0, dtype=float))
-    if B_p0.shape != (k, k):
-        raise ValueError(f"B_p0 must be {k}x{k}, got {B_p0.shape}")
     B_p0_inv = np.linalg.inv(B_p0)
 
     omega = np.array(omega_init, dtype=float).reshape(k)
     sigma = float(sigma_init)
-    if sigma <= 0:
-        raise ValueError("sigma_init must be positive")
 
     omega_draws = np.zeros((n_iter, k))
     sigma_draws = np.zeros(n_iter)
@@ -337,9 +255,8 @@ def gibbs_qr_sampler(X, y, p, n_iter, burn_in, seed,
     for it in range(n_iter):
         resid = y - X @ omega
         raw = resid ** 2 / (tau2_c * sigma)
-        delta2 = np.maximum(raw, delta2_floor)
-        if count_guards:
-            delta_hits += int(np.count_nonzero(raw < delta2_floor))
+        delta2 = np.maximum(raw, DELTA2_FLOOR)
+        delta_hits += int(np.count_nonzero(raw < DELTA2_FLOOR))
         delta = np.sqrt(delta2)
         gamma2 = 2 / sigma + theta_c ** 2 / (tau2_c * sigma)
         gamma = np.sqrt(gamma2)
@@ -349,9 +266,8 @@ def gibbs_qr_sampler(X, y, p, n_iter, burn_in, seed,
                 f"non-positive or non-finite Wald mean at iteration {it}")
         w = rng.wald(wald_mean, gamma2)
         v_raw = 1.0 / w
-        v = np.clip(v_raw, v_floor, None)
-        if count_guards:
-            v_hits += int(np.count_nonzero(v_raw < v_floor))
+        v = np.clip(v_raw, V_FLOOR, None)
+        v_hits += int(np.count_nonzero(v_raw < V_FLOOR))
 
         Xz = X / (tau2_c * sigma * v)[:, None]
         B_p_inv = X.T @ Xz + B_p0_inv
@@ -371,8 +287,7 @@ def gibbs_qr_sampler(X, y, p, n_iter, burn_in, seed,
 
     return GibbsResult(
         omega=omega_draws[burn_in:], sigma=sigma_draws[burn_in:],
-        seed=int(seed), n_iter=int(n_iter), burn_in=int(burn_in),
-        delta_floor_hits=delta_hits, v_clip_hits=v_hits, n_obs=n, n_par=k,
+        delta_floor_hits=delta_hits, v_clip_hits=v_hits,
     )
 
 
@@ -443,22 +358,12 @@ def mcse(chains, ess_total=None) -> float:
 
 
 
-# the exact posterior -- sigma integrated out analytically
+# the exact posterior sigma integrated out analytically
 
 @dataclass
 class ExactPosterior:
     omega: np.ndarray
     sigma: np.ndarray
-    grid: np.ndarray
-    log_post: np.ndarray
-    edge_log_drop: float
-    grid_points: int
-    refinement_max_rel_change: float
-    points_per_posterior_sd: float = float("nan")
-
-    @property
-    def es(self):
-        return None  # computed by the caller, which owns tau
 
 
 def _check_loss_total(grid, y_sorted, cum, tau):
@@ -479,7 +384,7 @@ def _check_loss_total(grid, y_sorted, cum, tau):
 
 def exact_posterior(y, tau, n_draws, seed, omega_p0=0.0, B_p0=1.0,
                     n0=4.0, s0=0.024, grid_points=400_001,
-                    target_log_drop=80.0, verify_refinement=True):
+                    target_log_drop=80.0):
     """
     Exact i.i.d. draws from the posterior of the INTERCEPT-ONLY model, with zero
     Monte Carlo error in the MCMC sense.
@@ -507,9 +412,8 @@ def exact_posterior(y, tau, n_draws, seed, omega_p0=0.0, B_p0=1.0,
     no MCMC.
 
     The grid is expanded until the log-density at both edges has dropped
-    `target_log_drop` below the mode (e^-80 ~ 1e-35 of the peak), and, when
-    `verify_refinement`, the whole computation is repeated at double resolution
-    and the summaries compared, so grid error is measured rather than assumed.
+    `target_log_drop` below the mode (e^-80 ~ 1e-35 of the peak), and the number
+    of grid points is raised until there are at least 20 per posterior sd.
     """
     y = np.asarray(y, dtype=float).ravel()
     n = y.size
@@ -539,8 +443,6 @@ def exact_posterior(y, tau, n_draws, seed, omega_p0=0.0, B_p0=1.0,
     else:
         raise RuntimeError("could not bracket the exact posterior")
 
-    #  contract while the criterion still holds, so the bracket is set by the
-    #  posterior and never by the data scale
     for _ in range(200):
         d, c_new = drop_at(centre, half / 1.5)
         if d < target_log_drop:
@@ -558,13 +460,12 @@ def exact_posterior(y, tau, n_draws, seed, omega_p0=0.0, B_p0=1.0,
         cdf /= cdf[-1]
         return grid, lp, dens, cdf
 
-    #  Resolution is escalated, not merely asserted.  At very small n the marginal
-    #  posterior has POLYNOMIAL tails, ~|omega|^-(n + n0/2), so the log-drop
-    #  criterion legitimately pushes the bracket far out and the default grid can
-    #  fall below 20 points per posterior sd (n = 10 gives 18.7).  That is a
-    #  resolution problem with an obvious answer: use more points.
-    #
-    #  resolution guard.  The only way to know the grid resolves the posterior is
+    #  At very small n the marginal posterior has POLYNOMIAL tails, ~|omega|^-(n + n0/2),
+    #   so the log-drop criterion legitimately pushes the bracket far out
+    #   and the default grid can all below 20 points per posterior sd (n = 10
+    #  f gives 18.7).  That is a resolution problem with an obvious
+    #   answer to  use more points.
+    #  resolution guard:  The only way to know the grid resolves the posterior is
     #  to measure it against the posterior's own scale.  This is the check that
     #  would have caught the bracketing failure above without needing the
     #  refinement pass, so it always runs.
@@ -572,8 +473,8 @@ def exact_posterior(y, tau, n_draws, seed, omega_p0=0.0, B_p0=1.0,
     for _ in range(6):
         grid, lp, dens, cdf = build(used_points)
         step = float(grid[1] - grid[0])
-        m1 = _trapz(grid * dens, grid) / _trapz(dens, grid)
-        m2 = _trapz((grid - m1) ** 2 * dens, grid) / _trapz(dens, grid)
+        m1 = np.trapezoid(grid * dens, grid) / np.trapezoid(dens, grid)
+        m2 = np.trapezoid((grid - m1) ** 2 * dens, grid) / np.trapezoid(dens, grid)
         post_sd = float(np.sqrt(max(m2, 0.0)))
         pts_per_sd = post_sd / step if step > 0 else np.inf
         if pts_per_sd >= 20.0:
@@ -584,20 +485,6 @@ def exact_posterior(y, tau, n_draws, seed, omega_p0=0.0, B_p0=1.0,
             f"exact_posterior: grid resolves only {pts_per_sd:.1f} points per "
             f"posterior sd after escalating to {used_points:,} points.  Check "
             f"that the prior and data scales are compatible.")
-    grid_points = used_points
-
-    # refinement check, only runs if verify_refinement is on: rebuild the grid at
-    # double resolution and compare the quantiles and the mean
-    rel = 0.0
-    if verify_refinement:
-        g2, lp2, d2, c2 = build(2 * grid_points - 1)
-        for q in (0.025, 0.5, 0.975):
-            a = np.interp(q, cdf, grid)
-            b = np.interp(q, c2, g2)
-            rel = max(rel, abs(a - b) / max(abs(a), 1e-12))
-        m1 = _trapz(grid * dens, grid) / _trapz(dens, grid)
-        m2 = _trapz(g2 * d2, g2) / _trapz(d2, g2)
-        rel = max(rel, abs(m1 - m2) / max(abs(m1), 1e-12))
 
     rng = np.random.default_rng(seed)
     u = rng.uniform(size=n_draws)
@@ -609,10 +496,4 @@ def exact_posterior(y, tau, n_draws, seed, omega_p0=0.0, B_p0=1.0,
     b_post = S_at + s0 / 2.0
     sg = b_post / rng.gamma(shape=a_post, scale=1.0, size=n_draws)
 
-    return ExactPosterior(
-        omega=om, sigma=sg, grid=grid, log_post=lp,
-        edge_log_drop=float(lp.max() - max(lp[0], lp[-1])),
-        grid_points=int(grid_points),
-        refinement_max_rel_change=float(rel),
-        points_per_posterior_sd=float(pts_per_sd),
-    )
+    return ExactPosterior(omega=om, sigma=sg)

@@ -308,21 +308,23 @@ def main():
         json.dump(RESULTS, fh, indent=1, default=float)
 
     fig, ax = plt.subplots(figsize=(9, 5))
-    ax.hist(es_draws, bins=80, density=True, color="steelblue", alpha=0.65,
+    ax.hist(es_draws, bins=80, density=True, color="silver", alpha=0.65,
             edgecolor="white", label="ES posterior (Bayesian)")
     ax.hist(ex_es, bins=80, density=True, histtype="step", color="black",
             lw=1.0, label="ES posterior (exact, i.i.d.)")
-    for (name, (v, c_)), col in zip(freq.items(), ["red", "green", "orange"]):
+    for (name, (v, c_)), ls_ in zip(freq.items(), [(0, (5, 2)), (0, (5, 2, 1, 2)),
+                                                   (0, (5, 2, 1, 2, 1, 2))]):
         kind = "CVaR" if name == "Historical" else "ES"
-        ax.axvline(c_, color=col, ls="--", lw=1.6, label=f"{name} {kind} ({c_:.4f})")
-    ax.axvline(es_draws.mean(), color="navy", lw=1.6,
+        ax.axvline(c_, color="black", ls=ls_, lw=1.6, label=f"{name} {kind} ({c_:.4f})")
+    ax.axvline(es_draws.mean(), color="black", lw=1.6,
                label=f"Posterior mean ({es_draws.mean():.4f})")
     for edge in es_ci:
-        ax.axvline(edge, color="navy", lw=1.0, ls=":")
+        ax.axvline(edge, color="black", lw=1.0, ls=":")
     ax.set_xlabel("Daily return"); ax.set_ylabel("Posterior density")
     ax.set_title(f"Posterior distribution of 5% Expected Shortfall, SPY "
                  f"({n} obs)\nwith frequentist point estimates")
-    ax.legend(fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=3)
+    ax.legend(fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=3,
+              handlelength=4)
     fig.tight_layout(); fig.savefig("spy_fig_es_posterior.png", dpi=150); plt.close(fig)
 
     print("\nSaved: spy_results.txt, spy_results.json, spy_fig_es_posterior.png")

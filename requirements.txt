@@ -1,5 +1,5 @@
 # versions the committed results were made with:
-#   Spy_run, A, B, C, /fig_eta_tau/: python 3.11.15, numpy 2.4.4, scipy 1.17.1
+#   Spy_run, A, B, C, fig_eta_tau: python 3.11.15, numpy 2.4.4, scipy 1.17.1
 #   B6 (my download): python 3.14.6, numpy 2.5.3, scipy 1.18.1, pandas 3.0.6, yfinance 1.7.0
 # newer versions work too, only the last digits of R-hat and ESS can move
 numpy>=2.4.4

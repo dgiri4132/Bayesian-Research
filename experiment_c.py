@@ -65,8 +65,8 @@ RHAT_TARGET = 1.01
 N_BOOT = 4000
 SEED = 20260901
 
-PAL = {"blue": "#2a78d6", "violet": "#4a3aa7", "red": "#e34948"}
 INK, INK2, GRID = "#0b0b0b", "#52514e", "#d9d8d3"
+GREY = "#8c8c8c"
 
 RESULTS: dict = {}
 FAILURES: list[str] = []
@@ -395,10 +395,10 @@ def make_figure(y, var_t, vol, sa, dates, prefix="spy"):
     # (a) the fitted quantile moves and returns breach it about 5% of the time
     t = np.arange(y.size)
     ax1.plot(t, y, lw=0.4, color=GRID, label="daily return")
-    ax1.plot(t, var_t, lw=1.4, color=PAL["blue"], label=r"fitted VaR$_t$ (5%)")
-    ax1.plot(t, var_t - al, lw=1.4, color=PAL["red"], ls=(0, (6, 3)),
+    ax1.plot(t, var_t, lw=1.4, color=INK, label=r"fitted VaR$_t$ (5%)")
+    ax1.plot(t, var_t - al, lw=1.4, color=GREY, ls=(0, (6, 3)),
              label=r"AL's ES$_t$ = VaR$_t-\sigma/(1-\tau)$")
-    ax1.scatter(t[br], y[br], s=7, color=PAL["violet"], zorder=5,
+    ax1.scatter(t[br], y[br], s=7, color=INK, zorder=5,
                 label=f"breaches ({int(br.sum())})")
     step = max(y.size // 5, 1)
     ax1.set_xticks(t[::step])
@@ -410,13 +410,13 @@ def make_figure(y, var_t, vol, sa, dates, prefix="spy"):
     ax1.legend(fontsize=8, frameon=True, loc="lower left")
 
     # (b) realised vs claimed overshoot by volatility bucket
-    ax2.axhline(al, color=PAL["red"], lw=2.0, ls=(0, (6, 3)),
+    ax2.axhline(al, color=INK, lw=2.0, ls=(0, (6, 3)),
                 label=r"AL asserts $\sigma/(1-\tau)$, every day")
     ax2.fill_between([0, 5], *np.percentile(sa / (1 - TAU), [2.5, 97.5]),
-                     color=PAL["red"], alpha=0.15, lw=0)
+                     color=GREY, alpha=0.3, lw=0)
     ax2.errorbar(range(1, 5), cent,
                  yerr=[np.array(cent) - np.array(los), np.array(his) - np.array(cent)],
-                 fmt="o", color=PAL["blue"], capsize=4, ms=7, lw=1.6,
+                 fmt="o", color=INK, capsize=4, ms=7, lw=1.6,
                  label="realised mean overshoot (95% bootstrap)")
     for i, (c, r_) in enumerate(zip(cent, [c / al for c in cent])):
         ax2.annotate(f"{r_:.1f}x", (i + 1, c), textcoords="offset points",

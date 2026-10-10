@@ -273,7 +273,7 @@ class BetaPower(Family):
     """
     Beta(gamma, 1) on [0,1]:  F(x) = x^gamma,  f(x) = gamma x^(gamma-1).
 
-    One parameter that covers the whole Weibull domain and shows the B3
+    One parameter that covers the whole Weibull domain and shows the
     three-way split at a bounded left endpoint:
 
         R(tau) = tau * gamma * (1 - tau^(1/gamma)) / ( (1-tau) * tau^(1/gamma) )
@@ -303,7 +303,7 @@ class NegGPD(Family):
     """
     Y = -X with X ~ GPD(xi, beta) on [0, inf). The lower tail of Y is the
     Pareto upper tail of X, so this is the family with a real Pareto left tail,
-    the one used for the Frechet case in B3(i) and Figure 2. Needs xi < 1 for a finite mean.
+    the one used in Figure 2. Needs xi < 1 for a finite mean.
 
         R(tau) = tau (1 - tau^xi) / ( xi (1 - tau) )        (no beta in it)
 

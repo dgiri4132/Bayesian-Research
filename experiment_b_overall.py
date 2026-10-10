@@ -11,7 +11,6 @@ magnitude it does.  B answers that question analytically.
     B1   the general closed form, and a third (mean-excess) form
     B2   specialisation to named families, checked against quadrature
     B2b  R = 1 at tau = 1/2 if and only if mean = median
-    B3   the tau -> 0 theorem, all three max-domains of attraction
     B4   the analytic refutation of the fat-tails diagnosis
     B5   R > 1: the diagnostic is two-sided, and R = 1 does not mean the data are AL
     B6   R across 492 real series. It is in experiment_b6.py, not here, because
@@ -181,109 +180,6 @@ def B2b():
     RESULTS["B2b"] = rows
 
 
-# B3 -- the tau -> 0 theorem
-
-def B3():
-    rule("B3  the tau -> 0 asymptotic, in general")
-    #  The three regimes are derived as follows, each is confirmed numerically by
-    #  the corresponding subsection below, so the derivations are not reprinted
-    #  there.  (i) Frechet: Karamata gives e_L ~ |VaR|/(alpha-1) and e_U ~ |VaR|,
-    #  hence R ~ alpha*tau.  (ii) Gumbel: for the Normal, Mills gives e_L ~ 1/|z|
-    #  and e_U ~ |z|, hence R ~ tau z^2 ~ 2 tau log(1/tau).  (iii) Weibull: with
-    #  F(x) ~ c (x - x_L)^gamma, e_L ~ (tau/c)^(1/gamma)/(gamma+1).
-    #  Embrechts, Kluppelberg and Mikosch (1997), Modelling Extremal Events:
-    #  (i) Theorem 3.3.7 and Karamata's theorem, Theorem A3.6(b); (ii) Mills'
-    #  ratio, Example 3.3.29, eq (3.38); (iii) Theorem 3.3.12
-    #
-    #  B1', the R = 1 characterisation and the tau = 1/2 result all come from one
-    #  line of algebra, and the (iii) trichotomy from one endpoint formula, so in
-    #  the paper B1' is Proposition 2, the R = 1 and tau = 1/2 results are in the
-    #  list after it, and the trichotomy is item 3 of Proposition 3.
-    out = {}
-
-    #(i) Frechet: R/(alpha tau) -> 1
-    print("\n  (i) Frechet MDA:  R(tau) / (alpha * tau)  ->  1")
-    ks = (2, 4, 6, 8, 10, 12)
-    print(f"      {'family':22s} {'alpha':>7s}" + "".join(f"{f'1e-{k}':>11s}" for k in ks))
-    rows_i = []
-    for f in (StudentT(3), StudentT(5), NegGPD(0.30), NegGPD(0.15)):
-        a = f.tail_index
-        vals = [one(f.R_closed(10.0 ** -k)) / (a * 10.0 ** -k) for k in ks]
-        # the tau at which the predicted relative error tau^(1/alpha) is below 1%
-        t_ok = 10.0 ** (np.log10(0.01) * a)
-        r_ok = one(f.R_closed(t_ok)) / (a * t_ok)
-        rows_i.append({"family": f.label, "alpha": a, "ratios": vals,
-                       "tau_for_1pct": t_ok, "ratio_there": r_ok})
-        print(f"      {f.label:22s} {a:7.2f}" + "".join(f"{v:11.5f}" for v in vals))
-    check("B3(i) R/(alpha tau) -> 1, at the tau the rate tau^(1/alpha) predicts",
-          all(abs(r["ratio_there"] - 1.0) < 0.02 for r in rows_i),
-          "worst " + f"{max(abs(r['ratio_there'] - 1) for r in rows_i):.2e}")
-    out["frechet"] = rows_i
-
-    #(ii) Normal
-    # R/(tau z^2) and R/(2 tau log(1/tau)) go to 1 only logarithmically, so I
-    # check the next-order form tau (z^2 + 3)/(1 - tau)
-    print("\n  (ii) Gumbel MDA, the Normal")
-    print(f"      {'tau':>10s} {'R':>12s} {'R/(t z^2)':>12s} {'R/(t(z^2+3)/(1-t))':>20s}"
-          f" {'R/(2t log(1/t))':>17s}")
-    f = Normal()
-    rows_ii = []
-    for k in range(2, 13):
-        t = 10.0 ** (-k)
-        r = one(f.R_closed(t))
-        z = stats.norm.ppf(t)
-        a1 = r / (t * z * z)
-        a2 = r / (t * (z * z + 3.0) / (1.0 - t))
-        a3 = r / (2.0 * t * np.log(1.0 / t))
-        rows_ii.append({"tau": t, "R": r, "over_tau_z2": a1,
-                        "over_sharp": a2, "over_2tlog": a3})
-        print(f"      {t:10.0e} {r:12.4e} {a1:12.6f} {a2:20.6f} {a3:17.6f}")
-    check("B3(ii) R/[tau(z^2+3)/(1-tau)] -> 1 within 1% at tau = 1e-12",
-          abs(rows_ii[-1]["over_sharp"] - 1.0) < 0.01,
-          f"ratio {rows_ii[-1]['over_sharp']:.6f}")
-    out["normal"] = rows_ii
-
-    #(iii) Weibull trichotomy 
-    print("\n  (iii) Weibull MDA, the trichotomy, on Beta(gamma,1):")
-    print(f"      {'gamma':>7s} {'predicted R(0+)':>18s}" +
-          "".join(f"{f'tau=1e-{k}':>12s}" for k in (2, 4, 6, 8)))
-    rows_iii = []
-    for g in (2.0, 1.5, 1.0, 0.75, 0.5):
-        fb = BetaPower(g)
-        # predicted limit: 0 for g>1, 2 f(x_L)(mu-x_L) for g=1, inf for g<1
-        pred = "0" if g > 1 else (f"{2.0 * 1.0 * fb.mean():.4f}" if g == 1 else "infinity")
-        vals = [one(fb.R_closed(10.0 ** -k)) for k in (2, 4, 6, 8)]
-        rows_iii.append({"gamma": g, "predicted": pred, "values": vals})
-        print(f"      {g:7.2f} {pred:>18s}" + "".join(f"{v:12.4g}" for v in vals))
-
-    print("\n      R(0+) = 2 f(x_L) (mu - x_L) at a positive endpoint density:")
-    rows_ep = []
-    for fam, fxl, xl in ((Uniform(), 1.0, 0.0), (Exponential(), 1.0, 0.0)):
-        pred = 2.0 * fxl * (fam.mean() - xl)
-        got = one(fam.R_closed(1e-9))
-        rows_ep.append({"family": fam.label, "predicted": pred, "R_at_1e-9": got})
-        print(f"        {fam.label:16s} predicted {pred:8.5f}   R(1e-9) = {got:10.6f}")
-    #  two families with a NON-flat density at the endpoint, so the formula is
-    #  tested where it is not trivially the uniform.  CVaR is taken from the
-    #  quantile integral, so this uses nothing from the family library.
-    for nm, dist, fxl, xl in (
-            ("Beta(1,3)", stats.beta(1, 3), 3.0, 0.0),
-            ("half-normal", stats.halfnorm(), float(2.0 / np.sqrt(2 * np.pi)), 0.0)):
-        t = 1e-7
-        mu_ = dist.mean()
-        q_ = dist.ppf(t)
-        c_ = quad(dist.ppf, 0.0, t, limit=400)[0] / t
-        got = R_general(mu_, q_, c_, t)
-        pred = 2.0 * fxl * (mu_ - xl)
-        rows_ep.append({"family": nm, "predicted": float(pred), "R_at_1e-9": float(got)})
-        print(f"        {nm:16s} predicted {pred:8.5f}   R(1e-7) = {got:10.6f}")
-    check("B3(iii) R(0+) = 2 f(x_L)(mu - x_L) at a positive endpoint density",
-          all(abs(r["predicted"] - r["R_at_1e-9"]) < 1e-5 for r in rows_ep),
-          "tested on uniform, exponential, Beta(1,3) and half-normal")
-    out["weibull"] = {"trichotomy": rows_iii, "endpoint_density": rows_ep}
-
-    RESULTS["B3"] = out
-
 def B4():
     rule("B4  the analytic refutation of the fat-tails diagnosis")
     print(f"\n      {'nu':>10s} {'R(tau=0.05)':>14s}")
@@ -430,7 +326,6 @@ def main() -> int:
     B1()
     B2()
     B2b()
-    B3()
     B4()
     B5()
     B7(ref, args.reference)

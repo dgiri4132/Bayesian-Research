@@ -38,7 +38,7 @@ files.
 | `Spy_run.py` | the SPY fit. Every headline number and Figure 1. Writes `spy_results.json` and `spy_results.txt` |
 | `experiment_a.py` | coverage study over 5 data-generating processes. Is it anything other than the model? Writes `experiment_A_results.json` |
 | `rdiag.py` | the R diagnostic and the library of distribution families it's evaluated on |
-| `experiment_b_overall.py` | R in closed form, the τ → 0 result, heavy tails vs the Normal, R > 1, and the Chen–Gerlach–Lu comparison. Writes `experiment_B_results.json` |
+| `experiment_b_overall.py` | R in closed form, heavy tails vs the Normal, R > 1, and the Chen–Gerlach–Lu comparison. Writes `experiment_B_results.json` |
 | `experiment_b6.py` | R across the S&P 500 (SPY plus 491 current stocks, my own download). Writes `B6_mine.json` and `B6_mine_by_asset.csv` |
 | `experiment_c.py` | the only real quantile regression (lagged \|r\| and 20-day volatility). Writes `experiment_C_results.json` |
 | `fig_eta_tau.py` | Figure of η against τ. Writes `fig_eta_tau.pdf`, `fig_eta_tau.png` and `eta_tau_table.csv` |

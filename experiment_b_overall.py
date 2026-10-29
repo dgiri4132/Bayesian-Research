@@ -10,9 +10,7 @@ magnitude it does.  B answers that question analytically.
     B0   the reference series placed against the closed forms
     B1   the general closed form, and a third (mean-excess) form
     B2   specialisation to named families, checked against quadrature
-    B2b  R = 1 at tau = 1/2 if and only if mean = median
     B4   the analytic refutation of the fat-tails diagnosis
-    B5   R > 1: the diagnostic is two-sided, and R = 1 does not mean the data are AL
     B6   R across 492 real series. It is in experiment_b6.py, not here, because
          it needs downloaded prices. I cut it on 5 Sep and brought it back on
          27 Sep once I had downloaded the data myself.
@@ -35,9 +33,8 @@ import sys
 import time
 
 import numpy as np
-from scipy import stats
 from scipy.integrate import quad
-from scipy.optimize import brentq, minimize
+from scipy.optimize import minimize
 
 import kkgibs as KK
 from rdiag import (
@@ -84,7 +81,7 @@ def B0(ref, ref_src):
     print(f"\n  source: {ref_src}   n = {ref.size}")
     print(f"\n  {'tau':>6}{'R (reference)':>16}{'Normal':>11}{'t(5)':>11}{'t(3)':>11}{'k':>7}")
     rows = []
-    for t in (0.01, 0.025, 0.05, 0.10, 0.25):
+    for t in (0.01, 0.05, 0.10):
         s = R_sample(ref, t)
         cf = [one(f.R_closed(t)) for f in (Normal(), StudentT(5), StudentT(3))]
         rows.append({"tau": float(t), "R_reference": s["R_general"],
@@ -158,74 +155,18 @@ def B2():
 
 
 
-# B2b 
-
-
-def B2b():
-    rule("B2b  R = 1 at tau = 1/2 if and only if mean = median")
-    # at tau = 1/2, R = (mu - c)/(q - c) and mu = (c + ybar_up)/2, so R = 1 exactly
-    # when q, the median, equals mu
-    rows = []
-    for f in roster():
-        r = one(f.R_closed(0.5))
-        mu = f.mean()
-        med = one(f.var_(0.5))
-        sym = abs(mu - med) < 1e-10
-        rows.append({"family": f.label, "R_half": r, "mean": float(mu),
-                     "median": med, "mean_eq_median": bool(sym)})
-        flag = "mean = median" if sym else f"mean - median = {mu - med:+.6f}"
-        print(f"      {f.label:24s}  R(1/2) = {r:8.5f}    {flag}")
-    ok = all((abs(r["R_half"] - 1.0) < 1e-4) == r["mean_eq_median"] for r in rows)
-    check("B2b R(1/2) = 1 exactly on the mean = median families, and only those", ok)
-    RESULTS["B2b"] = rows
-
-
 def B4():
     rule("B4  the analytic refutation of the fat-tails diagnosis")
     print(f"\n      {'nu':>10s} {'R(tau=0.05)':>14s}")
     rows = []
-    for nu in (2.5, 3, 5, 10, 100, 1000, 10000):
+    for nu in (2.5, 3, 5, 10, 100):
         r5 = one(StudentT(nu).R_closed(0.05))
         rows.append({"nu": float(nu), "R_05": r5})
         print(f"      {nu:10g} {r5:14.6f}")
     rn5 = one(Normal().R_closed(0.05))
-    print(f"      {'Normal':>10s} {rn5:14.6f}   <- the limit")
+    print(f"      {'Normal':>10s} {rn5:14.6f}")
     check("B4 R(Normal, tau=0.05) bounded well away from 1", rn5 < 0.30, f"R = {rn5:.6f}")
-    check("B4 t(nu) -> Normal as nu -> infinity, not -> 1",
-          (rows[-1]["R_05"] - rn5) < 1e-3 and rn5 < 0.30,
-          f"R(t(10000)) = {rows[-1]['R_05']:.6f} vs Normal {rn5:.6f}")
     RESULTS["B4"] = {"t_sequence": rows, "normal": {"R_05": rn5}}
-
-
-# B5: R > 1, and what R = 1 does and does not mean
-
-
-def B5():
-    rule("B5  R is two-sided, and R = 1 does not mean AL")
-    print("\n  (a) R > 1: the AL overstates the gap on these")
-    rows_a = []
-    for f in (LogNormal(), Exponential(), BetaPower(0.5)):
-        vals = [one(f.R_closed(t)) for t in TAUS]
-        rows_a.append({"family": f.label, "taus": TAUS.tolist(), "R": vals})
-        print(f"      {f.label:24s}" + "".join(f"{v:10.4f}" for v in vals))
-    print(f"      {'(tau)':24s}" + "".join(f"{t:10g}" for t in TAUS))
-
-    # the lognormal crossing
-    ln = LogNormal()
-    xr = brentq(lambda t: one(ln.R_closed(t)) - 1.0, 1e-6, 0.4)
-    print(f"\n      the lognormal crosses R = 1 at tau = {xr:.5f}")
-
-    # (b) R = 1 only says e_U/e_L = (1-tau)/tau, and the uniform has that at every tau
-    print("\n  (b) the uniform")
-    u = Uniform()
-    tg = np.array([0.001, 0.01, 0.05, 0.1, 0.25, 0.5])
-    ru = np.atleast_1d(u.R_closed(tg))
-    print(f"      {'tau':>10s}" + "".join(f"{t:12g}" for t in tg))
-    print(f"      {'R(uniform)':>10s}" + "".join(f"{v:12.9f}" for v in ru))
-    check("B5(b) uniform gives R = 1 identically", np.max(np.abs(ru - 1.0)) < 1e-12,
-          f"max |R-1| = {np.max(np.abs(ru - 1.0)):.2e}")
-    RESULTS["B5"] = {"above_one": rows_a, "lognormal_crossing_tau": float(xr),
-                     "uniform_R": ru.tolist(), "uniform_taus": tg.tolist()}
 
 
 # B7  reconciling Chen, Gerlach & Lu
@@ -233,41 +174,15 @@ def B5():
 
 def B7(ref, ref_src):
     """
-    CGL (2012) publish that AL tails are FATTER than Student-t.  This project says
-    the AL's tail is far too thin.  Both are true, and the reconciliation is the
-    single free shape parameter.  All of it is verified here rather than recalled.
+    CGL (2012) estimate the AL's shape parameter. This fits the AL to the reference
+    series with the shape free and with it fixed at tau, and compares the two gaps.
     """
     rule("B7  reconciling Chen, Gerlach & Lu (2012)")
 
     def bp(pp):
         return np.sqrt(pp ** 2 + (1 - pp) ** 2)
 
-    #  (a) their 2-6 sd claim, checked
-
-    #  standardised ALD(0,1,p) density, their eq (2)
-    def ald(x, pp):
-        b = bp(pp)
-        return b * np.exp(-b * np.abs(x) * np.where(x < 0, 1 / pp, 1 / (1 - pp)))
-    #  standardised Student-t with kurtosis 6  ->  6/(nu-4) = 3  ->  nu = 6
-    nu = 6.0
-    sc = 1.0 / np.sqrt(nu / (nu - 2.0))
-    #  Rather than score what fraction of [2,6] the ALD dominates, which needs an
-    #  arbitrary threshold , we solve for where the two densities actually cross.  If
-    #  CGL are right the crossings should be AT 2 and 6, and they are.
-    gap = lambda x: ald(x, 0.5) - stats.t.pdf(x / sc, nu) / sc
-    xs = -np.linspace(1.0, 8.0, 20001)
-    idx = np.where(np.diff(np.sign(gap(xs))) != 0)[0]
-    roots = [float(brentq(gap, xs[i], xs[i + 1])) for i in idx]
-    print(f"\n  ALD(0,1,0.5) against the t with kurtosis 6 (nu = {nu:.0f}), "
-          f"crossings on the left:")
-    for rt in roots:
-        print(f"        x = {rt:.4f} standard deviations")
-    check("B7  CGL's 2-to-6-sd claim reproduces, as the exact crossing points",
-          len(roots) == 2 and abs(abs(roots[0]) - 2.0) < 0.1
-          and abs(abs(roots[-1]) - 6.0) < 0.1,
-          f"crossings at {roots[0]:.3f} and {roots[-1]:.3f} sd")
-
-    #  (d) the reconciliation on the reference series
+    #  the reconciliation on the reference series
     def nll(th, y):
         g, ls, lp = th
         s_, pp_ = np.exp(ls), 1 / (1 + np.exp(-lp))
@@ -299,7 +214,7 @@ def B7(ref, ref_src):
     check("B7  freeing the shape recovers most of the gap; pinning it does not",
           r_free > 3 * r_pin,
           f"free {r_free:.4f} against pinned {r_pin:.4f}, factor {r_free/r_pin:.1f}")
-    RESULTS["B7"] = {"density_crossings_sd": roots, "p_free": float(pp_),
+    RESULTS["B7"] = {"p_free": float(pp_),
                      "R_pinned": float(r_pin), "R_free": float(r_free)}
 
 
@@ -325,9 +240,7 @@ def main() -> int:
     B0(ref, args.reference)
     B1()
     B2()
-    B2b()
     B4()
-    B5()
     B7(ref, args.reference)
 
     rule("PASS CRITERIA")

@@ -1,9 +1,8 @@
-"""I am creatng this file to produce every number and figure that will be used
+"""I am creatng this file to produce every number that will be used
     for the paper. The following list contains the things that it does:-
     - Loads the data via yfinance, which then in caches and reuses the cache on
     later runs.
-    - It computes frequentist baseline which includes Historical, Normal, and S
-    Student t-VaR/CVaR .
+    - It computes the historical VaR/CVaR.
     - Computes the Bayesian estimation with Kozumi-Kobayashi sigma- extension
     Gibbs sampler: intercept-only model at tau = 0.05 including four independent
     chains, each with its own seed, 15,000 iterations each and 5,000 burn-in period.
@@ -11,7 +10,7 @@
     1.01 bar which prints PASS/FAIL
     - It pools the 40000 retained draws and also reports posterior means and 95%
     credible intervals.
-    - Outputs comparision table and the ES posterior figure as well.
+    - Outputs comparision table as well.
 
     This is probably draft1 let's see if I need to make any more changes otherwise this
     can be the whole file """
@@ -21,16 +20,14 @@
 # - stops if R-hat fails
 # - exact posterior check, evidence section, guard counts.
 # - saves spy_results.json
+# - 29 Oct 2026: sigma_hat split (Lemma 2), mean_gap and the VaR distance are saved too,
+#   so every SPY number in the paper is in spy_results.json
 
 import sys
 import os
 import json
 import time
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from scipy.stats import norm, t
 
 import kkgibs as K
 
@@ -84,26 +81,6 @@ def load_data():
 # gibbs_qr_sampler, split_rhat and ess were here before, now using the ones in kkgibs
 
 
-def frequentist_baseline(r, alpha):
-    # historical VaR/CVaR with the order statistic (k = 126) same as the other files
-    emp = K.empirical_var_cvar(r, alpha)
-    var_hist = emp["VaR"]
-    cvar_hist = emp["CVaR"]
-
-    mu_p,std_p = r.mean(), r.std(ddof = 1)
-    var_norm = norm.ppf(alpha, mu_p, std_p)
-    cvar_norm = mu_p - std_p*norm.pdf(norm.ppf(alpha))/alpha
-
-    df_t, loc_t, sc_t = t.fit(r)
-    var_t = t.ppf(alpha, df_t, loc_t, sc_t)
-    q = t.ppf(alpha, df_t)
-    cvar_t_std = -(t.pdf(q, df_t)/alpha) * (df_t + q**2)/(df_t-1)
-    cvar_t = loc_t+ sc_t*cvar_t_std
-    return {"Historical":(var_hist,cvar_hist),
-            "Normal":(float(var_norm),float(cvar_norm)),
-            "Student-t":(float(var_t),float(cvar_t))}, emp, \
-           {"df": float(df_t), "loc": float(loc_t), "scale": float(sc_t)}
-
 def main():
     K.set_numeric_guards()
     t0 = time.time()
@@ -117,7 +94,8 @@ def main():
     print(f"\nn = {n} observations | tau = {TAU} | "
           f"{N_CHAINS} chains x {N_ITER} iter ({BURN_IN} burn-in)")
 
-    freq, emp, t_fit = frequentist_baseline(r, TAU)
+    # historical VaR/CVaR with the order statistic (k = 126) same as the other files
+    emp = K.empirical_var_cvar(r, TAU)
     print(f"  k = {emp['k']}, tau_eff = {emp['tau_eff']:.8f}, VaR {emp['VaR']:.6f}")
 
 
@@ -176,8 +154,7 @@ def main():
 
     print(f"\n{'Method':<22}{'VaR(5%)':>10}{'CVaR/ES(5%)':>14}")
     print("-" * 46)
-    for name, (v, c_) in freq.items():
-        print(f"{name:<22}{v:>10.4f}{c_:>14.4f}")
+    print(f"{'Historical':<22}{emp['VaR']:>10.4f}{emp['CVaR']:>14.4f}")
     print(f"{'Bayesian (post mean)':<22}{var_draws.mean():>10.4f}{es_draws.mean():>14.4f}")
     print(f"{'  95% CI VaR':<22}[{var_ci[0]:.4f}, {var_ci[1]:.4f}]")
     print(f"{'  95% CI ES':<22}{'':>10}[{es_ci[0]:.4f}, {es_ci[1]:.4f}]")
@@ -258,6 +235,19 @@ def main():
           abs(recovered - fit["cvar_emp"]) < 1e-14,
           f"difference {abs(recovered-fit['cvar_emp']):.2e}")
 
+    # 5g sigma_hat split at VaR (Lemma 2 in the paper), at tau_eff
+    print("\n  5g  sigma_hat split")
+    te = fit["tau_eff"]
+    e_L = var_emp - cvar_emp
+    e_U = emp["ybar_up"] - var_emp
+    part_lower = te * (1 - te) * e_L
+    part_upper = te * (1 - te) * e_U
+    split_err = abs(fit["sigma_hat"] - (part_lower + part_upper))
+    print(f"      e_L {e_L:.6f}, e_U {e_U:.6f}, share from below VaR "
+          f"{part_lower/fit['sigma_hat']:.1%}, from above {part_upper/fit['sigma_hat']:.1%}")
+    check("5g  sigma_hat equals tau(1-tau)(e_L + e_U) at tau_eff",
+          split_err < 1e-15, f"difference {split_err:.2e}")
+
     # ---- save numerical results ----
     rule("6  outputs")
     with open("spy_results.txt", "w") as f:
@@ -265,8 +255,7 @@ def main():
         f.write(f"priors: sigma~IG({N0/2:g},{S0/2:g}), omega~N(0,{B_P0:g})\n")
         f.write(f"R-hat theta={rhat_theta:.5f} sigma={rhat_sigma:.5f}  "
                 f"ESS theta={ess_theta:.0f} sigma={ess_sigma:.0f}\n\n")
-        for name, (v, c_) in freq.items():
-            f.write(f"{name:<22}VaR={v:.4f}  ES={c_:.4f}\n")
+        f.write(f"{'Historical':<22}VaR={emp['VaR']:.4f}  ES={emp['CVaR']:.4f}\n")
         f.write(f"{'Bayesian':<22}VaR={var_draws.mean():.4f} "
                 f"[{var_ci[0]:.4f},{var_ci[1]:.4f}]  "
                 f"ES={es_draws.mean():.4f} [{es_ci[0]:.4f},{es_ci[1]:.4f}]\n")
@@ -277,7 +266,7 @@ def main():
         "config": {"tau": TAU, "n_iter": N_ITER, "burn_in": BURN_IN,
                    "n_chains": N_CHAINS, "base_seed": BASE_SEED,
                    "B_p0": B_P0, "n0": N0, "s0": S0},
-        "frequentist": freq, "empirical": emp, "t_fit": t_fit,
+        "empirical": emp,
         "diagnostics": {"rhat_omega": rhat_theta, "rhat_sigma": rhat_sigma,
                         "ess_omega": ess_theta, "ess_sigma": ess_sigma,
                         "kept": kept,
@@ -288,6 +277,7 @@ def main():
                       "ES_mean": float(es_draws.mean()), "ES_ci": list(es_ci),
                       "ES_sd": post_sd_es, "VaR_sd": post_sd_var},
         "exact": {"omega_mean": float(ex.omega.mean()),
+                  "omega_ci": [float(v) for v in np.percentile(ex.omega, [2.5, 97.5])],
                   "sigma_mean": float(ex.sigma.mean()),
                   "ES_mean": float(ex_es.mean()),
                   "ES_ci": [float(v) for v in np.percentile(ex_es, [2.5, 97.5])],
@@ -299,35 +289,24 @@ def main():
                      "emp_mean_excess": emp_excess,
                      "excess_ratio": float(emp_excess / al_excess),
                      "al_implied_mean": mu_al,
+                     "mean_gap": float(mu_al - emp["mean"]),
+                     "var_gap_in_posterior_sd": float(abs(d_var) / post_sd_var),
                      "es_identity_max_err": id_err,
                      "mean_identity_err": float(abs(recovered - fit["cvar_emp"])),
                      "al_mle": fit},
+        "sigma_split": {"tau_eff": te, "e_L": float(e_L), "e_U": float(e_U),
+                        "n_below": int(emp["k"]), "n_above": int(n - emp["k"]),
+                        "sigma_hat": fit["sigma_hat"],
+                        "share_lower": float(part_lower / fit["sigma_hat"]),
+                        "share_upper": float(part_upper / fit["sigma_hat"]),
+                        "al_overshoot": float(fit["sigma_hat"] / (1 - te)),
+                        "identity_err": float(split_err)},
         "failures": FAILURES,
     })
     with open("spy_results.json", "w") as fh:
         json.dump(RESULTS, fh, indent=1, default=float)
 
-    fig, ax = plt.subplots(figsize=(9, 5))
-    ax.hist(es_draws, bins=80, density=True, color="silver", alpha=0.65,
-            edgecolor="white", label="ES posterior (Bayesian)")
-    ax.hist(ex_es, bins=80, density=True, histtype="step", color="black",
-            lw=1.0, label="ES posterior (exact, i.i.d.)")
-    for (name, (v, c_)), ls_ in zip(freq.items(), [(0, (5, 2)), (0, (5, 2, 1, 2)),
-                                                   (0, (5, 2, 1, 2, 1, 2))]):
-        kind = "CVaR" if name == "Historical" else "ES"
-        ax.axvline(c_, color="black", ls=ls_, lw=1.6, label=f"{name} {kind} ({c_:.4f})")
-    ax.axvline(es_draws.mean(), color="black", lw=1.6,
-               label=f"Posterior mean ({es_draws.mean():.4f})")
-    for edge in es_ci:
-        ax.axvline(edge, color="black", lw=1.0, ls=":")
-    ax.set_xlabel("Daily return"); ax.set_ylabel("Posterior density")
-    ax.set_title(f"Posterior distribution of 5% Expected Shortfall, SPY "
-                 f"({n} obs)\nwith frequentist point estimates")
-    ax.legend(fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=3,
-              handlelength=4)
-    fig.tight_layout(); fig.savefig("spy_fig_es_posterior.png", dpi=150); plt.close(fig)
-
-    print("\nSaved: spy_results.txt, spy_results.json, spy_fig_es_posterior.png")
+    print("\nSaved: spy_results.txt, spy_results.json")
 
     rule("summary")
     if FAILURES:

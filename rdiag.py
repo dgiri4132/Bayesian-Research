@@ -26,8 +26,9 @@ can represent.
         R = tau * (1 + e_U / e_L)
 
     so R = 1 only when e_U / e_L = (1 - tau) / tau, which is the ratio of the
-    AL's two exponential rates. That's the same ratio the uniqueness lemma pins,
-    so R compares the data's tail asymmetry with the one the AL assumes.
+    AL's two exponential rates. That's the ratio the AL's single scale fixes
+    (Section 3.2 of the paper), so R compares the data's tail asymmetry with the
+    one the AL assumes.
 
 Signs: Y is a return and I look at the LOWER tail, tau < 1/2,
 VaR = F^{-1}(tau), CVaR = E[Y | Y <= VaR], so CVaR < VaR and e_L > 0.

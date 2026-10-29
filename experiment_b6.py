@@ -144,20 +144,18 @@ def main() -> int:
           f", median {int(df['n'].median())}")
 
     print("\n  R by quantile level, across assets")
-    print(f"  {'tau':>6s} {'tail obs':>9s} {'min':>9s} {'q05':>9s} {'median':>9s}"
-          f" {'q95':>9s} {'max':>9s} {'% > 1':>8s}")
+    print(f"  {'tau':>6s} {'tail obs':>9s} {'median':>9s} {'max':>9s} {'% > 1':>8s}")
     summary = {}
     for t in TAUS:
         c = df[f"R_{t:g}"]
-        q = np.percentile(c, [0, 5, 50, 95, 100])
+        q = np.percentile(c, [50, 100])
         frac = float((c > 1).mean() * 100)
         summary[f"{t:g}"] = {
-            "min": float(q[0]), "q05": float(q[1]), "median": float(q[2]),
-            "q95": float(q[3]), "max": float(q[4]), "pct_above_1": frac,
+            "median": float(q[0]), "max": float(q[1]), "pct_above_1": frac,
             "median_tail_obs": float(df[f"tail_n_{t:g}"].median()),
         }
         print(f"  {t:6.2f} {df[f'tail_n_{t:g}'].median():9.0f} "
-              f"{q[0]:9.4f} {q[1]:9.4f} {q[2]:9.4f} {q[3]:9.4f} {q[4]:9.4f}"
+              f"{q[0]:9.4f} {q[1]:9.4f}"
               f" {frac:7.1f}%")
 
     # reference values from the closed forms, same tau grid

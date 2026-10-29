@@ -186,7 +186,8 @@ def posterior_summary(y, tau, seed, grid_points, n_draws):
     olo, ohi = np.percentile(ex.omega, [2.5, 97.5])
     return {"es_mean": float(es.mean()), "es_sd": float(es.std(ddof=1)),
             "es_lo": float(lo), "es_hi": float(hi),
-            "om_lo": float(olo), "om_hi": float(ohi)}
+            "om_lo": float(olo), "om_hi": float(ohi),
+            "om_mean": float(ex.omega.mean()), "om_sd": float(ex.omega.std(ddof=1))}
 
 
 # A1  the exact posterior is the Gibbs posterior
@@ -241,7 +242,7 @@ def A1(dgps, tau, n, quick):
 
 def coverage(d, tau, n, reps, seed, grid_points, n_draws):
     cov_es = cov_om = 0
-    bias_sd = []
+    bias_sd, om_means, om_sds = [], [], []
     for i in range(reps):
         rng = np.random.default_rng([seed, tag(d.name), i])
         y = d.rvs(n, rng)
@@ -252,8 +253,16 @@ def coverage(d, tau, n, reps, seed, grid_points, n_draws):
         if s["om_lo"] <= d.var_ <= s["om_hi"]:
             cov_om += 1
         bias_sd.append((s["es_mean"] - d.es_) / s["es_sd"])
+        om_means.append(s["om_mean"])
+        om_sds.append(s["om_sd"])
+    om_means, om_sds = np.array(om_means), np.array(om_sds)
+    # for the VaR intervals: are they off-centre, or too narrow? the second number is
+    # the posterior sd against how much the posterior mean really moves between replicates
     return {"cov_es": 100.0 * cov_es / reps, "cov_om": 100.0 * cov_om / reps,
-            "bias_sd_mean": float(np.mean(bias_sd)), "reps": reps}
+            "bias_sd_mean": float(np.mean(bias_sd)),
+            "var_bias_sd_mean": float(np.mean((om_means - d.var_) / om_sds)),
+            "var_sd_ratio": float(om_sds.mean() / om_means.std(ddof=1)),
+            "reps": reps}
 
 
 def A2(dgps, tau, n, reps, grid_points, n_draws):
@@ -262,13 +271,15 @@ def A2(dgps, tau, n, reps, grid_points, n_draws):
     # correlated. that helps the comparison between rows, which is what this is for
     print(f"  {reps} replicates per design, n = {n}, tau = {tau}\n")
     print(f"  {'design':<22}{'true VaR':>11}{'true ES':>11}{'VaR cov %':>11}"
-          f"{'ES cov %':>10}{'ES miscentring (sd)':>21}")
+          f"{'ES cov %':>10}{'ES miscentring (sd)':>21}{'VaR miscentring (sd)':>22}"
+          f"{'VaR sd ratio':>14}")
     rows = []
     for d in dgps:
         c = coverage(d, tau, n, reps, SEED, grid_points, n_draws)
         rows.append({"dgp": d.name, "true_var": d.var_, "true_es": d.es_, **c})
         print(f"  {d.name:<22}{d.var_:>11.6f}{d.es_:>11.6f}{c['cov_om']:>11.1f}"
-              f"{c['cov_es']:>10.1f}{c['bias_sd_mean']:>21.1f}")
+              f"{c['cov_es']:>10.1f}{c['bias_sd_mean']:>21.1f}"
+              f"{c['var_bias_sd_mean']:>22.2f}{c['var_sd_ratio']:>14.3f}")
     al, others = rows[0], rows[1:]
     lo, hi = coverage_band(reps)
     print(f"\n  a calibrated interval should land in [{lo:.1f}, {hi:.1f}]")
@@ -280,6 +291,11 @@ def A2(dgps, tau, n, reps, grid_points, n_draws):
           f"highest {max(r['cov_es'] for r in others):.1f}%")
     check("A2  other designs: VaR coverage below nominal", all(r["cov_om"] < lo for r in others),
           f"{min(r['cov_om'] for r in others):.1f} to {max(r['cov_om'] for r in others):.1f}%")
+    check("A2  other designs: the VaR intervals are too narrow, not off-centre",
+          all(abs(r["var_bias_sd_mean"]) < 1.0 and r["var_sd_ratio"] < 0.75 for r in others),
+          f"miscentring at most {max(abs(r['var_bias_sd_mean']) for r in others):.2f} sd, "
+          f"sd ratio {min(r['var_sd_ratio'] for r in others):.3f} to "
+          f"{max(r['var_sd_ratio'] for r in others):.3f}")
     RESULTS["A2"] = rows
 
 

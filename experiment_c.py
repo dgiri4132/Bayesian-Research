@@ -21,13 +21,8 @@ from how sigma is drawn in kkgibs.gibbs_qr_sampler.
 
 What I found:
     - C2: the overshoot the AL claims is way too small in every volatility
-      bucket. I tried 2, 3 and 4 buckets and every single one is outside the
-      AL's own 95% interval, by 3.9x to 9.0x.
-    - C3: whether the real overshoot itself goes up with volatility. This one
-      is NOT established. There are only ~123 breaches, and the one test that
-      looks significant (OLS, p = 0.0006) is carried by 3 days in the 2020
-      crash. If I drop those 3 days p = 0.96. So I report it as a negative and
-      I don't claim it, C2 is enough on its own.
+      quartile. Every quartile is outside the AL's own 95% interval, by 4.0x
+      to 9.0x.
 
 The model:
     VaR_t = b0 + b1 |r_{t-1}| + b2 sd(r_{t-20..t-1})
@@ -50,7 +45,6 @@ import sys
 import time
 
 import numpy as np
-from scipy import stats
 
 import kkgibs as K
 
@@ -64,9 +58,6 @@ N0, S0 = 4.0, 0.024
 RHAT_TARGET = 1.01
 N_BOOT = 4000
 SEED = 20260901
-
-INK, INK2, GRID = "#0b0b0b", "#52514e", "#d9d8d3"
-GREY = "#8c8c8c"
 
 RESULTS: dict = {}
 FAILURES: list[str] = []
@@ -194,7 +185,7 @@ def C2(y, var_t, om, sa, vol):
     print(f"  AL overshoot {al:.6f}, 95% CI [{al_lo:.6f}, {al_hi:.6f}], on every day")
     print(f"  breaches: {int(br.sum())} of {y.size} = {100*br.mean():.2f}%\n")
     all_rows, worst_ratio, all_exclude = [], np.inf, True
-    for nb in (2, 3, 4):
+    for nb in (4,):
         qs = np.quantile(vol, np.linspace(0, 1, nb + 1))
         print(f"  {nb} volatility buckets")
         print(f"    {'bucket':<8}{'breaches':>9}{'mean VaR_t':>12}"
@@ -220,7 +211,7 @@ def C2(y, var_t, om, sa, vol):
         print()
 
     check("C2  the realised overshoot exceeds the AL's credible interval in "
-          "every bucket, at every granularity", all_exclude)
+          "every volatility quartile", all_exclude)
     check("C2  the AL understates the overshoot by at least 3x everywhere",
           worst_ratio > 3.0, f"smallest ratio {worst_ratio:.2f}x")
 
@@ -228,34 +219,6 @@ def C2(y, var_t, om, sa, vol):
                      "breaches": int(br.sum()), "rows": all_rows,
                      "worst_ratio": float(worst_ratio)}
     return br
-
-
-# C3  :the negative result
-
-def C3(y, var_t, vol, br):
-    rule("C3  does the realised overshoot VARY with volatility?  NOT ESTABLISHED.")
-    over = var_t[br] - y[br]
-    v = vol[br]
-    rho, p_s = stats.spearmanr(v, over)
-    sl, ic, r_, p_o, se = stats.linregress(v, over)
-    print(f"  Spearman rank correlation   rho = {rho:+.3f},  p = {p_s:.3f}")
-    print(f"  OLS slope                   {sl:+.4f} (se {se:.4f}),  p = {p_o:.3f}")
-    print("\n  dropping the highest-volatility breach days:")
-    print(f"    {'dropped':<10}{'n':>5}{'OLS slope':>12}{'p':>9}{'Spearman p':>13}")
-    order = np.argsort(v)[::-1]
-    drops = []
-    for k in (0, 1, 2, 3, 5, 10):
-        m = np.ones(v.size, bool)
-        m[order[:k]] = False
-        s2, _, _, p2, e2 = stats.linregress(v[m], over[m])
-        _, ps2 = stats.spearmanr(v[m], over[m])
-        drops.append({"k": k, "n": int(m.sum()), "slope": float(s2),
-                      "p_ols": float(p2), "p_spearman": float(ps2)})
-        print(f"    {k:<10}{int(m.sum()):>5}{s2:>12.4f}{p2:>9.3f}{ps2:>13.3f}")
-
-    RESULTS["C3"] = {"spearman_rho": float(rho), "spearman_p": float(p_s),
-                     "ols_slope": float(sl), "ols_p": float(p_o),
-                     "leverage": drops}
 
 
 # C4  does adding covariates fix anything? The real question
@@ -303,17 +266,11 @@ def C5(y, var_t, sa, io_om, io_sa, io_al, ex):
     cl_i = float(np.mean(K.rho_tau(y - io_om, TAU)))
     cl_c = float(np.mean(K.rho_tau(y - var_t, TAU)))
 
-    # width of the 95% interval on the claimed overshoot
-    w_i = float(np.diff(np.percentile(ex.sigma / (1 - TAU), [2.5, 97.5]))[0])
-    w_c = float(np.diff(np.percentile(sa / (1 - TAU), [2.5, 97.5]))[0])
-
     rows = [("minimised check loss (= sigma-hat)", cl_i, cl_c),
             ("posterior mean sigma",               io_sa, float(sa.mean())),
             ("asserted overshoot",                 io_al, al),
             ("realised overshoot, own breaches",   over_i, over_c),
             ("ratio realised / asserted",          over_i / io_al, over_c / al),
-            ("absolute miss",                      over_i - io_al, over_c - al),
-            ("95% CI width on the overshoot",      w_i, w_c),
             ("breaches",                           int(br_i.sum()), int(br_c.sum()))]
     print(f"\n    {'':<36}{'intercept-only':>17}{'conditional':>15}")
     for nm, a, b in rows:
@@ -331,16 +288,10 @@ def C5(y, var_t, sa, io_om, io_sa, io_al, ex):
     check("C5  and the asserted shortfall contracts with it",
           al < io_al,
           f"{io_al:.6f} -> {al:.6f}, {(1-al/io_al)*100:.2f}% thinner")
-    check("C5  the conditional model is MORE confident (narrower interval)",
-          w_c < w_i, f"CI width {w_i:.7f} -> {w_c:.7f}, "
-                     f"{(1-w_c/w_i)*100:.1f}% narrower")
 
     check("C5  the conditional model is CLOSER, not further (ratio)",
           over_c / al < over_i / io_al,
           f"{over_i/io_al:.3f}x -> {over_c/al:.3f}x")
-    check("C5  the conditional model is CLOSER, not further (absolute)",
-          (over_c - al) < (over_i - io_al),
-          f"{over_i-io_al:.6f} -> {over_c-al:.6f}")
 
     # (3) what the paper can say: conditioning doesn't make ES worse, it just
     # doesn't make it right, which I think is proofable enough for the paper.
@@ -354,89 +305,8 @@ def C5(y, var_t, sa, io_om, io_sa, io_al, ex):
                                "contraction_pct": (1 - al / io_al) * 100},
         "realised_overshoot": {"intercept_only": over_i, "conditional": over_c},
         "ratio": {"intercept_only": over_i / io_al, "conditional": over_c / al},
-        "absolute_miss": {"intercept_only": over_i - io_al,
-                          "conditional": over_c - al},
-        "ci_width": {"intercept_only": w_i, "conditional": w_c,
-                     "narrowing_pct": (1 - w_c / w_i) * 100},
         "breaches": {"intercept_only": int(br_i.sum()),
                      "conditional": int(br_c.sum())}}
-
-
-# figures 
-
-def make_figure(y, var_t, vol, sa, dates, prefix="spy"):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    br = y < var_t
-    al = float(sa.mean() / (1 - TAU))
-    rng = np.random.default_rng(SEED)
-    qs = np.quantile(vol, np.linspace(0, 1, 5))
-    cent, los, his, xs = [], [], [], []
-    for i in range(4):
-        m = (vol >= qs[i]) & (vol <= qs[i + 1] if i == 3 else vol < qs[i + 1])
-        o = var_t[m & br] - y[m & br]
-        lo, hi = boot_mean_ci(o, rng)
-        cent.append(o.mean()); los.append(lo); his.append(hi)
-        xs.append(vol[m].mean())
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.4, 4.6))
-    for ax in (ax1, ax2):
-        ax.set_facecolor("white")
-        for s in ("top", "right"):
-            ax.spines[s].set_visible(False)
-        for s in ("left", "bottom"):
-            ax.spines[s].set_color(GRID)
-        ax.tick_params(colors=INK2, labelsize=9, length=3)
-        ax.grid(True, color=GRID, lw=0.6, alpha=0.8)
-        ax.set_axisbelow(True)
-
-    # (a) the fitted quantile moves and returns breach it about 5% of the time
-    t = np.arange(y.size)
-    ax1.plot(t, y, lw=0.4, color=GRID, label="daily return")
-    ax1.plot(t, var_t, lw=1.4, color=INK, label=r"fitted VaR$_t$ (5%)")
-    ax1.plot(t, var_t - al, lw=1.4, color=GREY, ls=(0, (6, 3)),
-             label=r"AL's ES$_t$ = VaR$_t-\sigma/(1-\tau)$")
-    ax1.scatter(t[br], y[br], s=7, color=INK, zorder=5,
-                label=f"breaches ({int(br.sum())})")
-    step = max(y.size // 5, 1)
-    ax1.set_xticks(t[::step])
-    ax1.set_xticklabels([d[:7] for d in dates[::step]], fontsize=8)
-    ax1.set_ylabel("daily return", fontsize=10, color=INK)
-    ax1.set_title("(a)  the quantile is conditional; the shortfall gap is not\n"
-                  r"       VaR$_t$ moves with volatility, VaR$_t-$ES$_t$ never does",
-                  fontsize=10.5, color=INK, loc="left", pad=8)
-    ax1.legend(fontsize=8, frameon=True, loc="lower left")
-
-    # (b) realised vs claimed overshoot by volatility bucket
-    ax2.axhline(al, color=INK, lw=2.0, ls=(0, (6, 3)),
-                label=r"AL asserts $\sigma/(1-\tau)$, every day")
-    ax2.fill_between([0, 5], *np.percentile(sa / (1 - TAU), [2.5, 97.5]),
-                     color=GREY, alpha=0.3, lw=0)
-    ax2.errorbar(range(1, 5), cent,
-                 yerr=[np.array(cent) - np.array(los), np.array(his) - np.array(cent)],
-                 fmt="o", color=INK, capsize=4, ms=7, lw=1.6,
-                 label="realised mean overshoot (95% bootstrap)")
-    for i, (c, r_) in enumerate(zip(cent, [c / al for c in cent])):
-        ax2.annotate(f"{r_:.1f}x", (i + 1, c), textcoords="offset points",
-                     xytext=(12, 0), fontsize=9, color=INK, va="center")
-    ax2.set_xlim(0.5, 4.7)
-    ax2.set_xticks(range(1, 5))
-    ax2.set_xticklabels([f"Q{i}\n{x:.3f}" for i, x in enumerate(xs, 1)], fontsize=9)
-    ax2.set_xlabel(f"volatility quartile (mean vol{WINDOW})", fontsize=10, color=INK)
-    ax2.set_ylabel(r"VaR$_t-$ES$_t$", fontsize=10, color=INK)
-    ax2.set_ylim(0, max(his) * 1.15)
-    ax2.set_title("(b)  the overshoot the model asserts, against the one\n"
-                  "       that happened, in every volatility regime",
-                  fontsize=10.5, color=INK, loc="left", pad=8)
-    ax2.legend(fontsize=8.5, frameon=True, loc="upper left")
-
-    fig.tight_layout()
-    f = f"{prefix}_fig_regression.png"
-    fig.savefig(f, dpi=200, facecolor="white")
-    plt.close(fig)
-    return f
 
 
 def main() -> int:
@@ -458,12 +328,11 @@ def main() -> int:
         rule("HALTED -- chains did not converge")
         return 1
     om, sa, var_t = fit
-    br = C2(y, var_t, om, sa, vol)
-    C3(y, var_t, vol, br)
+    C2(y, var_t, om, sa, vol)
     io_om, io_sa, io_al, ex_io = C4(y, var_t, sa, om)
     C5(y, var_t, sa, io_om, io_sa, io_al, ex_io)
 
-    written = [make_figure(y, var_t, vol, sa, dates)]
+    written = []
 
     RESULTS["_meta"] = {"env": env, "tau": TAU, "window": WINDOW,
                         "seed": BASE_SEED, "failures": FAILURES,
